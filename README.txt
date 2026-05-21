@@ -8,4 +8,4 @@ Open program by pressing the Steam Controller’s Steam + X button
 * Add emoji menu support
 * Expanded real-world testing
 
-![Steamless Keyboard](https://github.com/PietPetGit/SteamlessKeyboard/blob/main/SteamlessKeyboard.png?raw=true)
+![SteamlessKeyboard Screenshot](assets/SteamlessKeyboard.png)
