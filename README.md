@@ -13,7 +13,7 @@ Open program by pressing the Steam Controller’s Steam + X button
 ## Installation
 
 1. **Download the prebuilt executable**:
-   - Grab `SteamlessKeyboard.exe` from the [Releases page]([https://github.com/OWNER/REPO/releases](https://github.com/PietPetGit/SteamlessKeyboard/releases))
+   - Grab `SteamlessKeyboard.exe` from the [Releases page](https://github.com/PietPetGit/SteamlessKeyboard/releases)
    - Drop it anywhere on your machine
 
 2. **Configure startup behavior** (optional):
