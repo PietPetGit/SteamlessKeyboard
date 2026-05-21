@@ -24,4 +24,3 @@ Open program by pressing the Steam Controller’s Steam + X button
 	 
 **Credits**
 - Forked from [NOTtheMessiah/scosk](https://github.com/NOTtheMessiah/scosk)
-- Uses this drive https://github.com/Sentdex/steamcontroller
