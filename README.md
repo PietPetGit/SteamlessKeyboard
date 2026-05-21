@@ -9,6 +9,8 @@ Open program by pressing the Steam Controller’s Steam + X button
 ### To do
 * Add emoji menu support
 * Expanded real-world testing
+* Linux release?
+* Improve compatibility with popular Input translation layer projects
 
 ## Installation
 
