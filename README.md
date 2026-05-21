@@ -3,7 +3,7 @@ Recreated Steam’s on-screen keyboard for the Steam Controller (2026 version)<b
 Open program by pressing the Steam Controller’s Steam + X button
 
 * Works on Windows without Steam running
-* 
+
 ![SteamlessKeyboard Screenshot](assets/SteamlessKeyboard.png)
 
 ### To do
@@ -24,4 +24,4 @@ Open program by pressing the Steam Controller’s Steam + X button
 	 
 **Credits**
 - Forked from [NOTtheMessiah/scosk](https://github.com/NOTtheMessiah/scosk)
-- Uses the [steamcontroller](https://github.com/Sentdex/steamcontroller) driver
+- Uses this drive (https://github.com/Sentdex/steamcontroller) 
