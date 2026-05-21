@@ -23,4 +23,4 @@ Open program by pressing the Steam Controller’s Steam + X button
      - "Exit on Steam Launch" – fully exit the app when Steam starts
 	 
 **Credits**
-- Forked from [NOTtheMessiah/scosk](https://github.com/NOTtheMessiah/scosk)
+- Forked from [archshift/adusk](https://github.com/archshift/adusk)
