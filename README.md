@@ -16,10 +16,6 @@ SteamlessKeyboard aims to make the Steam Controller (2026) more useful when Stea
 - Expanded real-world testing
 - Linux release
 - Multiple language support?
-- Rumble
-- Renaming
-- Remapper
-- Debug menu toggle
 
 ---
 
