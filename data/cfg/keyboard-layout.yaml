@@ -1,0 +1,70 @@
+---
+# QWERTY layout derived from Steam's own VirtualKeyboard config
+# (steamui/chunk~2dcc5aaf7.js). Each key has a primary label and an
+# optional `shifted` label that adusk shows when LGRIP (shift) is held.
+# Symbol production is handled by the OS via the KEY_LEFTSHIFT modifier,
+# so the `keycode` is always the unshifted Linux keysym name.
+keys:
+- - {label: "`", shifted: "~",  keycode: KEY_GRAVE}
+  - {label: "1", shifted: "!",  keycode: KEY_1}
+  - {label: "2", shifted: "@",  keycode: KEY_2}
+  - {label: "3", shifted: "#",  keycode: KEY_3}
+  - {label: "4", shifted: "$",  keycode: KEY_4}
+  - {label: "5", shifted: "%",  keycode: KEY_5}
+  - {label: "6", shifted: "^",  keycode: KEY_6}
+  - {label: "7", shifted: "&",  keycode: KEY_7}
+  - {label: "8", shifted: "*",  keycode: KEY_8}
+  - {label: "9", shifted: "(",  keycode: KEY_9}
+  - {label: "0", shifted: ")",  keycode: KEY_0}
+  - {label: "-", shifted: "_",  keycode: KEY_MINUS}
+  - {label: "=", shifted: "+",  keycode: KEY_EQUAL}
+  - {label: "", keycode: KEY_BACKSPACE, width_weight: 1.4, modifier: true, align: left, valign: bottom, font_size: 17, glyph: glyph_x.png}
+
+- - {label: "Tab", keycode: KEY_TAB, width_weight: 1.4, modifier: true, align: left, valign: bottom}
+  - {label: "q", shifted: "Q", keycode: KEY_Q}
+  - {label: "w", shifted: "W", keycode: KEY_W}
+  - {label: "e", shifted: "E", keycode: KEY_E}
+  - {label: "r", shifted: "R", keycode: KEY_R}
+  - {label: "t", shifted: "T", keycode: KEY_T}
+  - {label: "y", shifted: "Y", keycode: KEY_Y}
+  - {label: "u", shifted: "U", keycode: KEY_U}
+  - {label: "i", shifted: "I", keycode: KEY_I}
+  - {label: "o", shifted: "O", keycode: KEY_O}
+  - {label: "p", shifted: "P", keycode: KEY_P}
+  - {label: "[", shifted: "{", keycode: KEY_LEFTBRACE}
+  - {label: "]", shifted: "}", keycode: KEY_RIGHTBRACE}
+  - {label: "\\", shifted: "|", keycode: KEY_BACKSLASH}
+
+- - {label: "Caps", keycode: KEY_CAPSLOCK, width_weight: 1.6, modifier: true, align: left, valign: bottom, glyph: glyph_l3.png}
+  - {label: "a", shifted: "A", keycode: KEY_A}
+  - {label: "s", shifted: "S", keycode: KEY_S}
+  - {label: "d", shifted: "D", keycode: KEY_D}
+  - {label: "f", shifted: "F", keycode: KEY_F}
+  - {label: "g", shifted: "G", keycode: KEY_G}
+  - {label: "h", shifted: "H", keycode: KEY_H}
+  - {label: "j", shifted: "J", keycode: KEY_J}
+  - {label: "k", shifted: "K", keycode: KEY_K}
+  - {label: "l", shifted: "L", keycode: KEY_L}
+  - {label: ";", shifted: ":",  keycode: KEY_SEMICOLON}
+  - {label: "'", shifted: "\"", keycode: KEY_APOSTROPHE}
+  - {label: "Enter", keycode: KEY_ENTER, width_weight: 1.7, modifier: true, align: right, valign: bottom, glyph: glyph_r2.png}
+
+- - {label: "Shift", behavior: shift, keycode: KEY_LEFTSHIFT, width_weight: 2.0, modifier: true, align: left, valign: bottom, glyph: glyph_l2.png}
+  - {label: "z", shifted: "Z", keycode: KEY_Z}
+  - {label: "x", shifted: "X", keycode: KEY_X}
+  - {label: "c", shifted: "C", keycode: KEY_C}
+  - {label: "v", shifted: "V", keycode: KEY_V}
+  - {label: "b", shifted: "B", keycode: KEY_B}
+  - {label: "n", shifted: "N", keycode: KEY_N}
+  - {label: "m", shifted: "M", keycode: KEY_M}
+  - {label: ",", shifted: "<", keycode: KEY_COMMA, dpad_down: 3}
+  - {label: ".", shifted: ">", keycode: KEY_DOT}
+  - {label: "/", shifted: "?", keycode: KEY_SLASH}
+  - {label: "Shift", behavior: shift, keycode: KEY_RIGHTSHIFT, width_weight: 2.0, modifier: true, align: right, valign: bottom, glyph: glyph_l2.png}
+
+- - {label: "", keycode: KEY_LEFT, width_weight: 1.2, modifier: true, glyph: glyph_smiley.png}
+  - {label: "", keycode: KEY_SPACE, width_weight: 6.0, align: left, glyph: glyph_y.png}
+  - {label: "◀", shifted: "▲", keycode: KEY_LEFT, shift_keycode: KEY_UP, width_weight: 1.2, modifier: true, font: symbol, font_size: 18}
+  - {label: "▶", shifted: "▼", keycode: KEY_RIGHT, shift_keycode: KEY_DOWN, width_weight: 1.2, modifier: true, font: symbol, font_size: 18}
+  - {label: "Paste", behavior: paste, width_weight: 1.2, modifier: true}
+  - {label: "Move", behavior: move, width_weight: 1.4, modifier: true, valign: top, text_color: "#7B7E82", bg_color: "#0E141B", glyph: glyph_keyboard.png, shift_glyph: "", shift_valign: center}
