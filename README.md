@@ -68,4 +68,4 @@ Right-click the <img src="assets/SteamlessController_seethrough.png" width="20" 
 - Forked from [archshift/adusk](https://github.com/archshift/adusk)
 - Gamepad translation inspired by [ddeverill/SteamlessController](https://github.com/ddeverill/SteamlessController)
 - Virtual gamepad driver by [Nefarius/ViGEmBus](https://github.com/nefarius/ViGEmBus)
-- Rumble implementation adapted from [SteamHapticsSinger](https://github.com/CrazyCritic89/SteamHapticsSinger) by CrazyCritic89.
+- Rumble implementation adapted from [CrazyCritic89/SteamHapticsSinger](https://github.com/CrazyCritic89/SteamHapticsSinger)
