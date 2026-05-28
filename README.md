@@ -53,7 +53,7 @@ Right-click the <img src="assets/SteamlessController_seethrough.png" width="20" 
 
 | Input | Action |
 |-------|--------|
-| <img src="assets/shared_button_x_md.png" width="32" align="middle"> | Open the on-screen keyboard > (or Ctrl + Alt + K) |
+| <img src="assets/shared_button_x_md.png" width="32" align="middle"> | Open the on-screen keyboard (or Ctrl + Alt + K) |
 | <img src="assets/sc_button_steam_md.png" width="32" align="middle"> + <img src="assets/shared_button_b_md.png" width="32" align="middle"> | Force-shutdown game |
 | <img src="assets/sc_button_steam_md.png" width="32" align="middle"> + <img src="assets/shared_button_y_md.png" width="32" align="middle"> | Turn off the controller |
 | <img src="assets/sc_button_steam_md.png" width="32" align="middle"> + <img src="assets/sd_button_menu_md.png" width="32" align="middle"> | Alt+Tab — hold Steam to keep the switcher open; each VIEW press advances one slot |
