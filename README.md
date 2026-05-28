@@ -1,5 +1,5 @@
 # SteamlessKeyboard
-The goal is to **replicate how the controller (2026) behaves under Steam's default configuration** — every button, chord, trackpad, and stick mapping — so that with Steam closed the controller works the same way it does with Steam running.
+The goal is to **replicate how the steam controller (2026) behaves under Steam's default configuration** — every button, chord, trackpad, and stick mapping — so that with Steam closed the controller works the same way it does with Steam running.
 
 > ⚠️ **Requires the May 22, 2026 Steam Controller firmware update.** This program will not work with earlier firmware.
 
