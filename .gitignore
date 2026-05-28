@@ -1,0 +1,19 @@
+# Secrets — never commit even if accidentally placed in the tree
+Github_token.txt
+Github_Token.txt
+
+# Release artifacts kept on the Desktop, not in the repo
+release.txt
+Push_Github.md
+
+# Build / output folders
+dist/
+build/
+OLD VERSION/
+
+# Common scratch / artifacts
+*.tmp
+*.log
+__pycache__/
+node_modules/
+.DS_Store
