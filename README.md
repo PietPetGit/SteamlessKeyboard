@@ -36,7 +36,7 @@ Run it and follow the prompts. You only need to do this once. The keyboard will 
 - Drop it anywhere on your machine and run it
 
 ### 3. Configure startup behavior (optional)
-Right-click the <img src="assets/SteamlessController_seethrough.png" width="20" style="vertical-align:middle"> tray icon to toggle:
+Right-click the <img src="windows/assets/SteamlessController_seethrough.png" width="20" style="vertical-align:middle"> tray icon to toggle:
 |  |  |
 |--------|-------------|
 | **Start with Windows** | Auto-launch on boot |
