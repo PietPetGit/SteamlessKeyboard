@@ -49,6 +49,15 @@ Right-click the <img src="assets/SteamlessController_seethrough.png" width="20" 
 | **Vibration** | Toggle rumble / haptic feedback |
 | **Debug** *(hidden — toggle Vibration 4× in a row to reveal/hide)* | **Block Steam controller grab** — made for stopping SteamInput / Big Picture from opening when using media controls |
 
+## Optional: Lock-screen keyboard
+
+An optional add-on lets you use the Steam Controller as a keyboard on the
+Windows **lock screen**, so you can type your password and sign in without a
+physical keyboard. It is **not** part of core SteamlessKeyboard and carries a
+real security trade-off — read
+[windows/lockscreen-keyboard/README.md](windows/lockscreen-keyboard/README.md)
+before installing.
+
 ---
 
 ## Controller Keybinds
