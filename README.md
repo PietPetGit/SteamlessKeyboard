@@ -18,7 +18,7 @@ The goal is to **replicate how the steam controller (2026) behaves under Steam's
 
 ## Installation
 
-### 1. Install the ViGEmBus driver
+### 1. Install the ViGEmBus driver (windows only)
 
 [github.com/nefarius/ViGEmBus/releases](https://github.com/nefarius/ViGEmBus/releases)
 
@@ -77,3 +77,4 @@ before installing.
 - Gamepad translation inspired by [ddeverill/SteamlessController](https://github.com/ddeverill/SteamlessController)
 - Virtual gamepad driver by [Nefarius/ViGEmBus](https://github.com/nefarius/ViGEmBus)
 - Rumble implementation adapted from [CrazyCritic89/SteamHapticsSinger](https://github.com/CrazyCritic89/SteamHapticsSinger)
+- Battery-status parsing referenced from [samueltoken/Bloss_battery_indicator](https://github.com/samueltoken/Bloss_battery_indicator)
