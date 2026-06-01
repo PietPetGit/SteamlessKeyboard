@@ -1,0 +1,23 @@
+# Runtime dependencies for both platforms.
+#
+# A single file serves the Windows and Linux CI jobs: platform-specific deps are
+# guarded with PEP 508 environment markers, so `pip install -r requirements.txt`
+# pulls the right set on each runner (see .github/workflows/build.yml).
+
+# ---- shared ----
+PySDL2
+Pillow
+pynput
+hidapi
+PyYAML
+pystray
+
+# ---- Windows only ----
+PySDL2-dll ; sys_platform == "win32"     # bundles the SDL2 DLLs (imported as sdl2dll by windows/build.py)
+vgamepad ; sys_platform == "win32"       # ViGEm virtual Xbox 360 gamepad
+
+# ---- Linux only ----
+PyGObject ; sys_platform == "linux"      # gi / AppIndicator tray backend (linux/tray_linux.py)
+
+# ---- build tool (used by CI to produce the release binaries) ----
+pyinstaller
