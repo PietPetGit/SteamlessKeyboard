@@ -22,8 +22,6 @@ can type your password and sign in without a physical keyboard.
 2. The right trackpad moves the mouse — click **Ease of Access** <img src="../data/images/glyphs/glyph_easeofaccess.png" width="18" alt="Ease of Access" style="vertical-align:middle"> (bottom-right).
 3. The keyboard appears. Type your password and press **R2** to sign in.
 
-Closing the keyboard keeps it closed; click **Ease of Access** again to reopen.
-
 ## Uninstall
 
 Double-click **`uninstall.bat`** and click **Yes**. The lock screen returns to
