@@ -1,4 +1,4 @@
-# Lock-Screen Keyboard (optional add-on)
+# Optional: Lock-screen keyboard (windows only)
 
 Use the Steam Controller as a keyboard on the Windows **lock screen**, so you
 can type your password and sign in without a physical keyboard.
