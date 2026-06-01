@@ -11,7 +11,7 @@ The goal is to **replicate how the steam controller (2026) behaves under Steam's
 - Smart gamepad mode — Smooth switching between gamepad and lizard mode
 
 
-![SteamlessKeyboard Screenshot](assets/SteamlessKeyboard.png)
+![SteamlessKeyboard Screenshot](windows/assets/SteamlessKeyboard.png)
 <sub>Press X to open the on-screen keyboard (or Ctrl + Alt + K)</sub>
 
 ### To do
