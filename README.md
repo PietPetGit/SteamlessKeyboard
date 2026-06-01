@@ -7,16 +7,16 @@ The goal is to **replicate how the steam controller (2026) behaves under Steam's
 
 SteamlessKeyboard is distributed as per-platform builds attached to each GitHub
 [Release](https://github.com/PietPetGit/SteamlessKeyboard/releases). There are no
-per-platform branches — everything lives on `main`, and a CI workflow builds both
-assets when a release is published. Grab the one for your OS:
+per-platform branches — everything lives on `main`, and each Release carries a
+prebuilt asset for each OS. Grab the one for your OS:
 
 | Platform | Asset |
 |----------|-------|
 | **Windows** | `SteamlessKeyboard-<version>-windows.zip` |
 | **Linux** *(experimental — OSK only)* | `SteamlessKeyboard-<version>-linux.tar.gz` |
 
-Both assets are produced automatically by GitHub Actions
-(`.github/workflows/build.yml`) on a Windows and an Ubuntu runner.
+Both assets are prebuilt and attached directly to each Release — the Windows
+`.zip` and the Linux `.tar.gz`.
 
 ## Features
 - Works on Windows without Steam running
@@ -145,7 +145,6 @@ Right-click the <img src="windows/assets/SteamlessController_seethrough.png" wid
 │  ├─ data/  assets/
 │  ├─ tray_linux.py  battery_probe.py
 │  └─ build_linux.py
-├─ .github/workflows/build.yml  # CI: builds + attaches both release assets
 ├─ requirements.txt             # deps for both platforms (PEP 508 markers)
 ├─ README.md  LICENSE  HACKING.md
 ```
