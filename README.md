@@ -14,12 +14,6 @@ The goal is to **replicate how the steam controller (2026) behaves under Steam's
 ![SteamlessKeyboard Screenshot](windows/assets/SteamlessKeyboard.png)
 <sub>Press X to open the on-screen keyboard (or Ctrl + Alt + K)</sub>
 
-### To do
-- Add emoji menu support
-- Expanded real-world testing
-- Linux release
-- Multiple language support?
-
 ---
 
 ## Installation
