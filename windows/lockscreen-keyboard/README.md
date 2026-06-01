@@ -13,7 +13,7 @@ can type your password and sign in without a physical keyboard.
 
 ## Install
 
-1. Double-click **`install.bat`**.
+1. Double-click **`install.bat`** that is located in this folder
 2. Click **Yes** on the admin prompt.
 
 ## Use
