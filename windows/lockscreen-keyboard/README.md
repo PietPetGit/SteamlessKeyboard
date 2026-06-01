@@ -1,5 +1,6 @@
 # Optional: Lock-screen keyboard (windows only)
 
+AS OF NOW THIS HAS ONLY BEEN TESTED ON WINDOWS 10
 Use the Steam Controller as a keyboard on the Windows **lock screen**, so you
 can type your password and sign in without a physical keyboard.
 
