@@ -9,6 +9,7 @@ The goal is to **replicate how the steam controller (2026) behaves under Steam's
 - Recreates Steam controllers default key bindings
 - Translates Steam Controller inputs into a Xbox 360 gamepad (windows only) 
 - Smart gamepad mode — Smooth switching between gamepad and lizard mode
+- Use Keyboard on Windows Lock screen
 
 
 ![SteamlessKeyboard Screenshot](windows/assets/SteamlessKeyboard.png)
