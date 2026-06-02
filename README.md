@@ -4,7 +4,7 @@ The goal is to **replicate how the steam controller (2026) behaves under Steam's
 > ⚠️ **Requires the May 22, 2026 Steam Controller firmware update.** This program will not work with earlier firmware.
 
 ## Features
-- Works on Windows without Steam running
+- Works on Windows/Linux without Steam running
 - Recreates Steam's on-screen keyboard
 - Recreates Steam controllers default key bindings
 - Translates Steam Controller inputs into a Xbox 360 gamepad (windows only) 
