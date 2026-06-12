@@ -4,8 +4,17 @@ OS-level injection layer so the keystrokes land in whichever window is
 focused (which on Windows is whatever the user had focused before adusk
 started, since the SDL2 window doesn't steal focus unless clicked)."""
 
+import ctypes
+import time
+
 from pynput.keyboard import Controller as _Controller, Key as _Key, KeyCode as _KeyCode
-from pynput.mouse import Controller as _MouseController
+from pynput.mouse import Controller as _MouseController, Button as _MouseButton
+
+_MOUSE_BUTTONS = {
+    "left": _MouseButton.left,
+    "right": _MouseButton.right,
+    "middle": _MouseButton.middle,
+}
 
 
 class _KeysProxy:
@@ -107,6 +116,37 @@ class Keyboard:
             except Exception as e:
                 print(f"uinput: release {code!r} failed: {e}")
 
+    def tap_with_modifier(self, modifier_code, key_code):
+        """Press modifier+key as a true virtual-key chord, then release it.
+
+        pynput injects printable character keys (KeyCode.from_char, vk=None) as
+        char/Unicode events that DON'T combine with a held modifier — so Ctrl+'v'
+        (paste) or Win+'.' (emoji) come through as a plain 'v' / '.' instead of
+        the shortcut (and inconsistently, since the char→vk resolution is
+        state-dependent). Resolving the char to its raw virtual key via
+        VkKeyScan and pressing THAT makes it combine with the modifier reliably.
+        """
+        mod = self._resolve(modifier_code)
+        key = self._resolve(key_code)
+        if mod is None or key is None:
+            return
+        try:
+            ch = getattr(key, "char", None)
+            if ch:
+                vk = ctypes.windll.user32.VkKeyScanW(ord(ch)) & 0xFF
+                if vk not in (0, 0xFF):
+                    key = _KeyCode.from_vk(vk)
+        except Exception:
+            pass
+        try:
+            self._kb.press(mod)
+            time.sleep(0.01)          # let the OS register the modifier first
+            self._kb.press(key)
+            self._kb.release(key)
+            self._kb.release(mod)
+        except Exception as e:
+            print(f"uinput: tap_with_modifier {key_code!r} failed: {e}")
+
 
 class Mouse:
     """Thin wrapper over pynput's mouse for relative cursor movement, so the
@@ -122,3 +162,23 @@ class Mouse:
             self._m.move(int(dx), int(dy))
         except Exception as e:
             print(f"uinput: mouse move ({dx},{dy}) failed: {e}")
+
+    def press(self, button="left"):
+        try:
+            self._m.press(_MOUSE_BUTTONS[button])
+        except Exception as e:
+            print(f"uinput: mouse press {button} failed: {e}")
+
+    def release(self, button="left"):
+        try:
+            self._m.release(_MOUSE_BUTTONS[button])
+        except Exception as e:
+            print(f"uinput: mouse release {button} failed: {e}")
+
+    def scroll(self, dx, dy):
+        if not dx and not dy:
+            return
+        try:
+            self._m.scroll(int(dx), int(dy))
+        except Exception as e:
+            print(f"uinput: mouse scroll ({dx},{dy}) failed: {e}")

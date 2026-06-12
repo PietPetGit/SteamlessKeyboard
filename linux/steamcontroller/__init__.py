@@ -3,7 +3,9 @@
 
 The original ynsta/steamcontroller library targets the 2015 wired/wireless
 SteamController (PID 0x1102/0x1142) with a 64-byte input report. The Triton
-hardware uses a different 54-byte format with report ID 0x42. Both layouts
+hardware uses a different format with state report ID 0x45 (newer firmware;
+46 bytes) or the legacy 0x42 (USB/full state, 54 bytes) — same field layout,
+see TRITON_INPUT_REPORT_IDS. Both layouts
 were identified from Valve's open-source headers in libsdl-org/SDL
 (src/joystick/hidapi/steam/controller_structs.h and the steam_triton
 driver). This file maps the Triton wire format onto the small adusk-facing
@@ -227,16 +229,20 @@ PRODUCT_ID_WIRED   = 0x1302  # Steam Controller 2026 (wired USB)
 # what made the mode chime lag ~1s behind the actual switch.
 _LAST_GOOD_PATH = None
 
-# Triton input report constants. Firmware update bumped REPORT_STATE from
-# 0x42 to 0x45; the layout is otherwise unchanged.
-TRITON_INPUT_REPORT_ID = 0x45
-# Minimum payload size for a usable Triton input report. The parser reads
-# the first 30 bytes (report ID + buttons/triggers/sticks/pads), so anything
-# below that is unparseable. Recent firmware emits 46-byte reports — older
-# notes describe a 54-byte format. Gating on the parser's actual minimum
-# (rather than the observed full length) keeps this from rejecting future
-# firmware that trims a couple more trailing bytes.
-TRITON_INPUT_REPORT_LEN = 30
+# Triton input ("state") report IDs. A firmware update bumped the primary
+# REPORT_STATE id from 0x42 to 0x45 (the BLE / "no-quaternion" variant); wired
+# units can still emit the legacy 0x42 (USB / full-state). The byte layout after
+# the id is IDENTICAL for both, so accept EITHER — mirroring the reference
+# project's IsStateReportId(), which treats 0x45 and 0x42 the same.
+TRITON_INPUT_REPORT_IDS = (0x45, 0x42)
+TRITON_INPUT_REPORT_LEN = 54   # full USB (0x42) report length — reference only
+# Minimum payload size for a usable Triton input report. The parser reads the
+# first 30 bytes (report ID + buttons/triggers/sticks/pads), so anything below
+# that is unparseable. Recent firmware emits 46-byte 0x45 reports — older notes
+# describe a 54-byte format. Gating on the parser's actual minimum (rather than
+# the observed full length) keeps this from rejecting future firmware that trims
+# a couple more trailing bytes.
+TRITON_INPUT_MIN_LEN = 30
 
 # Power/battery status report (HID input report id 0x43, 17 bytes). It streams
 # interleaved with the game-input reports on the same vendor interface. Layout
@@ -308,6 +314,11 @@ HAPTIC_DEFAULT_GAIN = 0xFE
 # Gain is ~dB-like and steep: -2 is near full blast, -80 is inaudible. A light
 # but feelable click sits near the top; the SHORT burst count keeps it clicky.
 HAPTIC_CLICK_GAIN = -6
+# The simulated trackpad-click (a physical pad press) gets its own tick: a
+# short, crisp, slightly firmer pop than the light key tap. Kept high-frequency
+# and short so it reads as a real button click, not a deep buzz.
+HAPTIC_PAD_CLICK_GAIN = -5
+HAPTIC_PAD_CLICK_FREQ = 500
 # Mode-change "chime": a short, deliberately subtle two-tone played on both
 # trackpads, with the two pads detuned a couple Hz so they beat gently
 # ("chorus") and a barely-there low-D pedal on a rumble motor for warmth. Kept
@@ -318,6 +329,11 @@ HAPTIC_CHIME_GAIN = 3        # just above the -2 "music" level: clear, not loud
 # A4->F#4 (play_chime reverses for off). Equal-tempered.
 CHIME_NOTES = (370, 440)     # F#4, A4
 CHIME_DURATIONS = (0.10, 0.15)  # quick two-tone blip, second rings a touch
+# Each chime tone is bounded to this long so a crash mid-chime can't leave a
+# pad/motor buzzing (the body pedal is a rumble motor). Far longer than any
+# single note, so in normal play the next note's stop cuts it first — the sound
+# is unchanged; only the crash tail self-terminates. See play_chime.
+CHIME_TONE_SECONDS = 1.0
 CHIME_DETUNE_HZ = 2          # left pad offset from right -> faint chorus beat
 CHIME_BODY_FREQ = 147        # D3 pedal under the tones for warmth (Hz)
 CHIME_BODY_GAIN = -12        # gentle warmth, well inside the safe motor band
@@ -332,6 +348,19 @@ RUMBLE_FREQ_LOW = 90     # large motor (left, actuator 3) — heavy
 RUMBLE_FREQ_HIGH = 180   # small motor (right, actuator 4) — buzzy
 RUMBLE_GAIN_MIN = -40    # lightest audible rumble (intensity 1)
 RUMBLE_GAIN_MAX = -4     # strongest (intensity 255), still below the damage zone
+
+# Self-terminating rumble (anti-"infinite buzz"): each motor tone is sent as a
+# SHORT bounded burst lasting ~RUMBLE_TONE_SECONDS, and a keepalive thread
+# re-arms it every RUMBLE_REFRESH_SECONDS while the game still wants rumble. The
+# burst outlasts the refresh so sustained rumble feels continuous — but if this
+# process dies (crash / hard kill / a game that quits without zeroing FFB)
+# before the usual set_rumble(0,0) stop is delivered, the last burst simply
+# lapses on its own within ~RUMBLE_TONE_SECONDS instead of the motor buzzing
+# until the controller is power-cycled. (A tone's length in cycles = freq_hz *
+# seconds.) This is the same self-expiring contract SDL_RumbleGamepad(ms)
+# already gives the SDL pads, so neither controller path can get stuck on.
+RUMBLE_TONE_SECONDS = 1.5
+RUMBLE_REFRESH_SECONDS = 1.0
 
 # Watchdog: the controller re-enables lizard mode if we don't keep disabling
 # it. SDL re-sends every 3s; we use a slightly tighter interval to be safe.
@@ -454,6 +483,14 @@ def _build_haptic_stop_report(actuator):
     return bytes(buf)
 
 
+def _tone_count(freq_hz, seconds):
+    """Burst length (cycles) for a tone of `freq_hz` that lasts ~`seconds`,
+    clamped to the report's 16-bit count field. Used to make every sustained
+    tone self-expiring so a crash/hard-kill can't leave an actuator buzzing
+    (the controller stops the actuator itself once the burst finishes)."""
+    return min(0xFFFF, max(1, int(freq_hz * seconds)))
+
+
 def _rumble_gain(intensity):
     """Map an XInput motor intensity (1..255) to a signed tone gain within the
     safe [RUMBLE_GAIN_MIN, RUMBLE_GAIN_MAX] range (higher = louder)."""
@@ -548,9 +585,9 @@ def _parse_battery(data):
 
 def _parse_triton(data: bytes) -> SteamControllerInput:
     """Parse a 54-byte Triton input report into the SCI tuple."""
-    if len(data) < 30 or data[0] != TRITON_INPUT_REPORT_ID:
+    if len(data) < TRITON_INPUT_MIN_LEN or data[0] not in TRITON_INPUT_REPORT_IDS:
         return None
-    # Skip byte 0 (report ID 0x42). Layout after that:
+    # Skip byte 0 (report ID 0x45 / legacy 0x42). Layout after that:
     #   B  seq            (1 byte)
     #   I  buttons        (4 bytes, uint32 LE)
     #   h  sTriggerLeft   (2 bytes, int16)
@@ -579,6 +616,18 @@ def _parse_triton(data: bytes) -> SteamControllerInput:
     )
 
 
+# HID-open retry: toggling a block setting ("Block SteamInput Steam Controller grab"
+# or "Block SteamInput Xbox Controller grab") closes the current handle and immediately
+# reopens in the other mode (shared<->exclusive). The OS can take a moment to
+# release the just-closed handle, so the first reopen can hit a transient
+# sharing violation in EITHER direction. Retry a few times so the toggle applies
+# live (turning the block both on AND off) instead of only after a restart.
+# Retries run only on a *failed* open, so a cold/first open — the normal case,
+# and every interface probe in _open_first_responsive — pays nothing.
+OPEN_RETRY_ATTEMPTS = 5
+OPEN_RETRY_DELAY = 0.1
+
+
 class SteamController:
     """API-compatible with adusk's expectations:
         SteamController(callback, callback_args=None)
@@ -593,6 +642,10 @@ class SteamController:
         # When True, open the controller with no sharing so other apps (Steam)
         # can't grab it. Falls back to shared if exclusive open is denied.
         self._exclusive = exclusive
+        # Other dongle/controller HID interfaces held open (claimed but never
+        # read) purely to deny Steam access to them too -- see
+        # _claim_remaining_interfaces. Only populated when self._exclusive.
+        self._blocked_devs = []
         self._dev = None
         self._dev_lock = threading.Lock()
         self._exit = threading.Event()
@@ -622,24 +675,61 @@ class SteamController:
         # time.monotonic() of the last input/battery frame, for get_battery()'s
         # freshness check (see BATTERY_FRESH_SECONDS).
         self._last_frame_t = 0.0
+        # Game-rumble keepalive (see set_rumble / _rumble_keepalive): the last
+        # requested (large, small) motor intensities, and the daemon thread that
+        # re-arms the self-expiring bursts while they're non-zero. A single tuple
+        # read/write is atomic under the GIL; the thread is started lazily on the
+        # first non-zero rumble and dies with this instance.
+        self._rumble_state = (0, 0)
+        self._rumble_thread = None
 
     def _open_device(self, path):
         """Open `path`. In exclusive mode, try a no-sharing open (blocks Steam)
         and fall back to normal shared hidapi if that's denied — e.g. because
-        Steam already holds the device — so the controller still works."""
-        if self._exclusive:
+        Steam already holds the device — so the controller still works.
+
+        Both opens are retried (see OPEN_RETRY_ATTEMPTS): a block toggle reopens
+        in the other mode right after closing our own handle, which can briefly
+        race the OS releasing it in either direction. Retries fire only on a
+        failed open, so normal opens and the probe loop are unaffected."""
+        last_err = None
+        try:
+            from . import winhid
+        except ImportError:
+            # Linux builds exclude the Windows-only winhid module (no
+            # CreateFileW exclusive-open equivalent for hidraw exists), so
+            # "Block SteamInput Steam Controller grab" can't do anything here
+            # — skip straight to the shared open below without the noise of
+            # a doomed retry loop.
+            winhid = None
+        if self._exclusive and winhid is not None:
+            for attempt in range(OPEN_RETRY_ATTEMPTS):
+                try:
+                    dev = winhid.ExclusiveHidDevice()
+                    dev.open_path(path)
+                    print("steamcontroller: opened EXCLUSIVE (Steam blocked)")
+                    return dev
+                except Exception as e:
+                    # A sharing violation right after our own close clears once
+                    # the OS releases the device; a genuine conflict (Steam holds
+                    # it) won't, so cap the retries and then fall back to shared.
+                    last_err = e
+                    if attempt + 1 < OPEN_RETRY_ATTEMPTS:
+                        time.sleep(OPEN_RETRY_DELAY)
+            print(f"steamcontroller: exclusive open denied ({last_err}); "
+                  "falling back to shared")
+        # Shared hidapi open — retried for the same race when a block is toggled
+        # OFF and we reopen shared right after releasing the exclusive handle.
+        for attempt in range(OPEN_RETRY_ATTEMPTS):
             try:
-                from . import winhid
-                dev = winhid.ExclusiveHidDevice()
+                dev = hid.device()
                 dev.open_path(path)
-                print("steamcontroller: opened EXCLUSIVE (Steam blocked)")
                 return dev
             except Exception as e:
-                print(f"steamcontroller: exclusive open denied ({e}); "
-                      "falling back to shared")
-        dev = hid.device()
-        dev.open_path(path)
-        return dev
+                last_err = e
+                if attempt + 1 < OPEN_RETRY_ATTEMPTS:
+                    time.sleep(OPEN_RETRY_DELAY)
+        raise last_err if last_err is not None else OSError(f"could not open {path}")
 
     def _open_first_responsive(self):
         global _LAST_GOOD_PATH
@@ -701,7 +791,7 @@ class SteamController:
                 except Exception as e:
                     last_err = e
                     break
-                if data and len(data) >= TRITON_INPUT_REPORT_LEN and data[0] == TRITON_INPUT_REPORT_ID:
+                if data and len(data) >= TRITON_INPUT_MIN_LEN and data[0] in TRITON_INPUT_REPORT_IDS:
                     got_input = True
                     break
 
@@ -709,15 +799,42 @@ class SteamController:
                 self._dev = dev
                 _LAST_GOOD_PATH = path
                 print(f"steamcontroller: opened iface {cand['interface_number']}")
+                if self._exclusive:
+                    self._claim_remaining_interfaces(candidates, path)
                 return
 
-            dev.close()
+            if self._exclusive:
+                # Keep this idle interface claimed too (see _blocked_devs):
+                # libusb's open already detached its kernel usbhid driver and
+                # removed its /dev/hidrawN (see linux-hidapi-libusb-exclusivity
+                # memory) -- holding it denies Steam access to every dongle
+                # HID interface, not just the one carrying live input, in case
+                # SteamInput's Steam-button detection reads a different one.
+                self._blocked_devs.append(dev)
+            else:
+                dev.close()
 
         raise RuntimeError(
             "Found Steam Controller 2026 interfaces but none returned "
             "input reports. Is the controller paired/powered? "
             f"Last error: {last_err!r}"
         )
+
+    def _claim_remaining_interfaces(self, candidates, active_path):
+        """block_sc_hid only: open and hold every other SC HID interface
+        (dongle slots / wired controller) that _open_first_responsive didn't
+        already try, purely so libusb's open detaches their kernel usbhid
+        driver and removes their /dev/hidrawN too. Failures (e.g. Steam
+        already has one claimed) are expected and silently skipped -- we
+        can't dislodge a handle Steam opened first."""
+        for cand in candidates:
+            if cand['path'] == active_path:
+                continue
+            try:
+                dev = self._open_device(cand['path'])
+            except Exception:
+                continue
+            self._blocked_devs.append(dev)
 
     def _lizard_watchdog(self):
         """Re-assert whichever lizard state we currently want every
@@ -831,12 +948,23 @@ class SteamController:
                 print(f"steamcontroller: haptic_stop failed: {e}")
                 return False
 
-    def haptic_click(self, freq_hz=400, gain=HAPTIC_CLICK_GAIN, count=6, duration=0.04):
+    def haptic_pad_click(self):
+        """'Physical pad click' tick for the simulated trackpad click (press
+        AND release) and the L2/R2 selects. A short, crisp, slightly firmer pop
+        than the light key tap — high-frequency and brief so it feels like a
+        real button click rather than a deep buzz."""
+        self.haptic_click(freq_hz=HAPTIC_PAD_CLICK_FREQ, gain=HAPTIC_PAD_CLICK_GAIN,
+                          count=4, duration=0.014)
+
+    def haptic_click(self, freq_hz=550, gain=HAPTIC_CLICK_GAIN, count=5, duration=0.018):
         """Crisp trackpad 'click' for UI feedback: play a very short burst
         (`count` cycles) on both trackpad actuators so it snaps rather than
-        buzzes. Both pad writes go out under a single lock for minimal onset
-        latency; a timed stop after `duration` is a safety net in case the
-        hardware ignores the burst count and plays continuously."""
+        buzzes. A higher frequency gives a faster attack (snappier onset) and
+        the short safety-stop keeps the tail tight, so rapid press/release
+        ticks read as distinct clicks instead of smearing into a buzz. Both
+        pad writes go out under a single lock for minimal onset latency; the
+        timed stop after `duration` is a safety net in case the hardware
+        ignores the burst count and plays continuously."""
         pads = (HAPTIC_PAD_LEFT, HAPTIC_PAD_RIGHT)
         with self._dev_lock:
             if self._dev is None:
@@ -888,8 +1016,10 @@ class SteamController:
                     for act, f, gain in voicing:
                         # Stop before each tone for a clean onset (also required
                         # on the motor — omitting it there can reboot the unit).
+                        # Bounded count so a crash mid-chime self-terminates.
                         self._dev.write(_build_haptic_stop_report(act))
-                        self._dev.write(_build_haptic_tone_report(act, f, gain))
+                        self._dev.write(_build_haptic_tone_report(
+                            act, f, gain, _tone_count(f, CHIME_TONE_SECONDS)))
                 except Exception as e:
                     print(f"steamcontroller: play_chime failed: {e}")
                     return
@@ -903,13 +1033,19 @@ class SteamController:
                 except Exception:
                     pass
 
-    def set_rumble(self, large, small):
-        """Drive the two back rumble motors from XInput large/small motor
-        intensities (0..255); 0 stops a motor. A stop precedes each tone — per
-        SteamHapticsSinger this avoids the controller rebooting when re-driving
-        the motors. Sent as HID OUTPUT reports; returns True if written."""
+    def _emit_rumble(self, large, small):
+        """Write the two back-motor tones for the given intensities as SHORT,
+        self-expiring bursts (RUMBLE_TONE_SECONDS). A stop precedes each tone —
+        per SteamHapticsSinger this avoids the controller rebooting when
+        re-driving the motors. Re-validates against the latest requested state
+        under the lock so a concurrent set_rumble(0,0) can't be clobbered by a
+        stale keepalive re-arm (which would briefly turn a just-stopped motor
+        back on). Returns True if written."""
         with self._dev_lock:
             if self._dev is None:
+                return False
+            if (large, small) != self._rumble_state:
+                # A newer request landed; let its own emit win.
                 return False
             try:
                 for act, intensity, freq in (
@@ -919,11 +1055,53 @@ class SteamController:
                     self._dev.write(_build_haptic_stop_report(act))
                     if intensity and intensity > 0:
                         self._dev.write(_build_haptic_tone_report(
-                            act, freq, _rumble_gain(intensity)))
+                            act, freq, _rumble_gain(intensity),
+                            _tone_count(freq, RUMBLE_TONE_SECONDS)))
                 return True
             except Exception as e:
                 print(f"steamcontroller: set_rumble failed: {e}")
                 return False
+
+    def set_rumble(self, large, small):
+        """Drive the two back rumble motors from XInput large/small motor
+        intensities (0..255); 0 stops a motor. The tones are SELF-TERMINATING
+        bursts re-armed by a keepalive thread (see RUMBLE_TONE_SECONDS), so if
+        this process dies before the usual set_rumble(0,0) stop is sent, the
+        motors fall silent on their own within ~RUMBLE_TONE_SECONDS rather than
+        buzzing indefinitely. Returns True if the immediate write succeeded."""
+        large = max(0, min(255, int(large)))
+        small = max(0, min(255, int(small)))
+        self._rumble_state = (large, small)
+        ok = self._emit_rumble(large, small)
+        if large or small:
+            self._ensure_rumble_keepalive()
+        return ok
+
+    def _ensure_rumble_keepalive(self):
+        """Start the rumble keepalive thread if it isn't already running."""
+        t = self._rumble_thread
+        if t is not None and t.is_alive():
+            return
+        t = threading.Thread(target=self._rumble_keepalive, daemon=True)
+        self._rumble_thread = t
+        t.start()
+
+    def _rumble_keepalive(self):
+        """Re-arm the bounded rumble bursts every RUMBLE_REFRESH_SECONDS while a
+        motor should be on, so sustained game rumble feels continuous. Exits the
+        moment the rumble is zero or the device goes away — and then the last
+        burst lapses by itself, which is the whole point: a dropped stop (crash,
+        hard kill) can never leave a motor stuck on."""
+        while not self._exit.is_set():
+            large, small = self._rumble_state
+            if not (large or small):
+                return
+            with self._dev_lock:
+                gone = self._dev is None
+            if gone:
+                return
+            self._emit_rumble(large, small)
+            self._exit.wait(RUMBLE_REFRESH_SECONDS)
 
     def get_battery(self):
         """Most recent SteamControllerBattery seen on the wire, or None if the
@@ -1023,3 +1201,9 @@ class SteamController:
                 except Exception:
                     pass
                 self._dev = None
+                for d in self._blocked_devs:
+                    try:
+                        d.close()
+                    except Exception:
+                        pass
+                self._blocked_devs = []

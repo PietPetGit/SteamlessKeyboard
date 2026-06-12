@@ -21,8 +21,6 @@ import shutil
 import subprocess
 import sys
 
-import sdl2dll
-
 
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 ENTRY = "lockscreen_osk.py"
@@ -43,13 +41,18 @@ def _run_pyinstaller():
         "--add-data", f"{DATA_DIR};data",
         "--hidden-import", "pynput.keyboard._win32",
         "--hidden-import", "pynput.mouse._win32",
+        "--hidden-import", "sdl3w",
     ]
     if os.path.isfile(APP_ICON_ICO):
         cmd += ["--icon", APP_ICON_ICO]
 
-    sdl_dll_dir = os.path.join(os.path.dirname(sdl2dll.__file__), "dll")
-    for dll in glob.glob(os.path.join(sdl_dll_dir, "*.dll")):
-        cmd += ["--add-binary", f"{dll};sdl2dll/dll"]
+    # Ship the vendored SDL3 DLLs (sdl3w/_loader.py finds them under sdl3w/dll).
+    sdl_dll_dir = os.path.join(PROJECT_DIR, "sdl3w", "dll")
+    sdl_dlls = glob.glob(os.path.join(sdl_dll_dir, "*.dll"))
+    if not sdl_dlls:
+        raise SystemExit(f"no SDL3 DLLs found in {sdl_dll_dir}")
+    for dll in sdl_dlls:
+        cmd += ["--add-binary", f"{dll};sdl3w/dll"]
 
     cmd.append(ENTRY)
     print("running:", " ".join(cmd))

@@ -15,8 +15,9 @@ can type your password and sign in without a physical keyboard.
 
 ## Install
 
-1. Double-click **`install.bat`** that is located in this folder
-2. Click **Yes** on the admin prompt.
+1. Download and extract the Windows release package.
+2. Double-click **`install.bat`** that is located in this folder.
+3. Click **Yes** on the admin prompt.
 
 ## Use
 

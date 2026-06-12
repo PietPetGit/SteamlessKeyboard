@@ -14,5 +14,5 @@ setup(
     author='archshift',
     author_email='',
     description='',
-    requires=['pysdl2', 'vgamepad'],
+    requires=['vgamepad'],
 )

@@ -5,10 +5,10 @@ Run:
 
 Produces `dist/LockScreenKeyboard.exe` — a single-file, no-console EXE that
 opens the keyboard immediately (no tray, no Steam+X wait). This is the binary
-the accessibility-tool hijack in `Desktop/windows hack/GUIDE.md` points at so
-the keyboard appears on the Windows lock screen.
+the installer in `lockscreen-keyboard/` copies into place so the keyboard
+appears on the Windows lock screen.
 
-It is a trimmed clone of build.py: same data/ + SDL2 bundling, but it omits the
+It is a trimmed clone of build.py: same data/ + SDL3 bundling, but it omits the
 gamepad (vgamepad/ViGEm) collection since the lock-screen launcher never enters
 gamepad mode, and it uses lockscreen_osk.py as the entry point.
 """
@@ -18,8 +18,6 @@ import os
 import shutil
 import subprocess
 import sys
-
-import sdl2dll
 
 
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -44,15 +42,20 @@ def _run_pyinstaller():
         # into focus. Collect the whole package (incl. comtypes.gen) so the
         # in-memory UIA codegen has everything it needs inside the frozen build.
         "--collect-all", "comtypes",
+        # sdl3w is imported transitively (adusk.screen); name it explicitly.
+        "--hidden-import", "sdl3w",
     ]
     if os.path.isfile(APP_ICON_ICO):
         cmd += ["--icon", APP_ICON_ICO]
 
-    # PySDL2 finds SDL2.dll via PYSDL2_DLL_PATH (lockscreen_osk.py points it at
-    # <bundle>/sdl2dll/dll), so ship the SDL2 DLL family into that same path.
-    sdl_dll_dir = os.path.join(os.path.dirname(sdl2dll.__file__), "dll")
-    for dll in glob.glob(os.path.join(sdl_dll_dir, "*.dll")):
-        cmd += ["--add-binary", f"{dll};sdl2dll/dll"]
+    # sdl3w loads the vendored SDL3 DLLs from <bundle>/sdl3w/dll (see
+    # sdl3w/_loader.py); ship SDL3.dll + SDL3_ttf.dll into that path.
+    sdl_dll_dir = os.path.join(PROJECT_DIR, "sdl3w", "dll")
+    sdl_dlls = glob.glob(os.path.join(sdl_dll_dir, "*.dll"))
+    if not sdl_dlls:
+        raise SystemExit(f"no SDL3 DLLs found in {sdl_dll_dir}")
+    for dll in sdl_dlls:
+        cmd += ["--add-binary", f"{dll};sdl3w/dll"]
 
     cmd.append(ENTRY)
     print("running:", " ".join(cmd))

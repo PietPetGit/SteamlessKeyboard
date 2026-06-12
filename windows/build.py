@@ -7,6 +7,10 @@ Produces `dist/SteamlessKeyboard-windows.exe`. Uses the prebuilt
 `data/images/app_icon.ico` (multi-resolution) directly as the EXE icon
 and bundles the data/ folder as PyInstaller datas. The output is a
 single-file, no-console exe suitable for dropping anywhere.
+
+Also rebuilds the lock-screen keyboard (build_lockscreen.py) and copies the
+result over lockscreen-keyboard/LockScreenKeyboard.exe, so the packaged
+lock-screen exe always matches the current adusk/ source.
 """
 
 import glob
@@ -15,7 +19,7 @@ import shutil
 import subprocess
 import sys
 
-import sdl2dll
+import build_lockscreen
 
 
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -53,14 +57,20 @@ def _run_pyinstaller():
         # picks up the dll + the .pyd ctypes shim so gamepad mode works
         # inside the frozen exe.
         "--collect-all", "vgamepad",
+        # Our hand-rolled SDL3 binding is imported transitively (adusk.screen
+        # -> sdl3w); name it explicitly so PyInstaller always bundles it.
+        "--hidden-import", "sdl3w",
     ]
 
-    # PySDL2 looks for SDL2.dll via PYSDL2_DLL_PATH at import time. tray.py
-    # sets that env var to <bundle>/sdl2dll/dll, so we ship the SDL2 family
-    # of DLLs into that same path inside the EXE.
-    sdl_dll_dir = os.path.join(os.path.dirname(sdl2dll.__file__), "dll")
-    for dll in glob.glob(os.path.join(sdl_dll_dir, "*.dll")):
-        cmd += ["--add-binary", f"{dll};sdl2dll/dll"]
+    # sdl3w loads the vendored SDL3 DLLs at import time, searching
+    # <bundle>/sdl3w/dll first (see sdl3w/_loader.py). Ship the pinned SDL3
+    # family (SDL3.dll + SDL3_ttf.dll) into that same path inside the EXE.
+    sdl_dll_dir = os.path.join(PROJECT_DIR, "sdl3w", "dll")
+    sdl_dlls = glob.glob(os.path.join(sdl_dll_dir, "*.dll"))
+    if not sdl_dlls:
+        raise SystemExit(f"no SDL3 DLLs found in {sdl_dll_dir}")
+    for dll in sdl_dlls:
+        cmd += ["--add-binary", f"{dll};sdl3w/dll"]
 
     cmd.append(ENTRY)
     print("running:", " ".join(cmd))
@@ -74,12 +84,22 @@ def _cleanup():
         shutil.rmtree(build_dir, ignore_errors=True)
 
 
+def _build_lockscreen():
+    build_lockscreen.main()
+    src = os.path.join(PROJECT_DIR, "dist", "LockScreenKeyboard.exe")
+    dst = os.path.join(PROJECT_DIR, "lockscreen-keyboard", "LockScreenKeyboard.exe")
+    shutil.copy2(src, dst)
+    print(f"updated: {dst}")
+
+
 def main():
     _check_icon()
     _run_pyinstaller()
     _cleanup()
     out = os.path.join(PROJECT_DIR, "dist", f"{OUTPUT_NAME}.exe")
     print(f"\nbuilt: {out}")
+
+    _build_lockscreen()
 
 
 if __name__ == "__main__":

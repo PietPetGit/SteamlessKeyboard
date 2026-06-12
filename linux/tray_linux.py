@@ -86,7 +86,13 @@ os.environ["PYSTRAY_BACKEND"] = "appindicator"
 import pystray  # noqa: E402
 from PIL import Image  # noqa: E402
 
+import sdl3w as S  # noqa: E402
+import steamcontroller.uinput as sui  # noqa: E402
+from steamcontroller import SCButtons  # noqa: E402
 from adusk import adusk as adusk_app  # noqa: E402
+from adusk import inputsrc as adusk_inputsrc  # noqa: E402
+from adusk import screen as adusk_screen  # noqa: E402
+from adusk import skins as adusk_skins  # noqa: E402
 from adusk import state as adusk_state  # noqa: E402
 
 
@@ -100,10 +106,49 @@ DEFAULT_SETTINGS = {
     "start_at_login": True,
     "disable_while_steam_running": True,
     "exit_on_steam_launch": False,
-    # Global haptics switch — gates the OSK's UI click feedback (and any
-    # future gamepad-mode rumble). Off = no haptics. Mirrors the Windows
-    # "Vibration" toggle.
-    "rumble_enabled": True,
+    # Per-controller haptics — gates the OSK's UI click feedback (and rumble) for
+    # that controller. Each controller's tray submenu has its own Vibration
+    # toggle (no global switch). "sc" = Steam Controller, "switch" = Switch Pro.
+    "rumble_enabled_sc": True,
+    "rumble_enabled_switch": True,
+    # Name of the selected Steam on-screen-keyboard skin (a .css under
+    # data/skins/). Unlike the others this is a string, not a bool — see the
+    # type-aware coercion in _load_settings. Applied when the OSK next opens.
+    "skin": "DefaultTheme",
+    # OSK transparency level (tray "Keyboard Skin → Transparent" submenu): one of
+    # "off"/"low"/"medium"/"high". Renders the keyboard with no background and
+    # translucent keys/text over the desktop, at three global-opacity levels.
+    "osk_transparency": "off",
+    # OSK window size (tray "Keyboard Skin → Size" submenu): "small" /
+    # "medium" (the original 1286x369 size, default) / "full" (fills the
+    # primary display's usable bounds edge-to-edge - good for touchscreens
+    # like the Steam Deck). Each OSK open builds a fresh Screen(), which
+    # picks this up automatically.
+    "osk_size": "medium",
+    # Steam Controller-only OSK settings (tray "Steam Controller" submenu, shown
+    # only while an SC is connected). Left-stick OSK navigation on/off; and the
+    # L2/R2 OSK actuation point: "default" (firmware full pull) / "low" / "lower".
+    "sc_left_stick_nav": True,
+    "sc_osk_trigger_actuation": "default",
+    # Right-stick mouse pointer speed: "low" / "medium" (default) / "high".
+    "sc_pointer_speed": "medium",
+    # Switch Pro Controller submenu (shown only while a Switch Pro / SDL pad
+    # is connected): same two settings as the SC, minus trigger actuation.
+    "switch_left_stick_nav": True,
+    "switch_pointer_speed": "medium",
+    # Which controller most recently drove the on-screen keyboard: "sc" (Steam
+    # Controller) or "sdl" (a generic SDL pad, e.g. the Switch Pro). Picks which
+    # Shift/Enter trigger glyphs the OSK shows. A string, not a bool. Updated
+    # live as each controller is used and persisted so the glyphs match the
+    # last-used pad on the next open — even after a reboot.
+    "last_osk_controller": "sc",
+    # When False the Debug submenu is hidden; toggled via the "Debug menu"
+    # item in the Startup submenu. Mirrors windows/tray.py.
+    "debug_menu_unlocked": False,
+    # "Block SteamInput Steam Controller grab" (Debug submenu): opens the
+    # physical Steam Controller HID exclusively so Steam can't read it. See
+    # [[block-steam-exclusive-hid]].
+    "block_sc_hid": False,
 }
 
 
@@ -115,7 +160,22 @@ def _load_settings():
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
         merged = dict(DEFAULT_SETTINGS)
-        merged.update({k: bool(v) for k, v in data.items() if k in DEFAULT_SETTINGS})
+        # Coerce each known key to the type of its default: bools stay bool
+        # (legacy files stored 0/1), string settings (e.g. "skin") pass through.
+        for k, val in data.items():
+            if k not in DEFAULT_SETTINGS:
+                continue
+            merged[k] = bool(val) if isinstance(DEFAULT_SETTINGS[k], bool) else val
+        # The two-level "low"(6000)/"lower"(3000) actuation collapsed to a single
+        # "low" using the lighter 3000 pull — fold a saved "lower" into "low".
+        if merged.get("sc_osk_trigger_actuation") == "lower":
+            merged["sc_osk_trigger_actuation"] = "low"
+        # The single global "rumble_enabled" split into per-controller toggles —
+        # seed both from the old value so a saved preference carries over.
+        if "rumble_enabled" in data:
+            on = bool(data["rumble_enabled"])
+            merged["rumble_enabled_sc"] = on
+            merged["rumble_enabled_switch"] = on
         return merged
     except (OSError, json.JSONDecodeError):
         return dict(DEFAULT_SETTINGS)
@@ -644,7 +704,301 @@ class _ChordState:
         self.release_win()
 
 
+class _SdlDesktopController:
+    """Turns a non-Steam SDL pad (Switch Pro / Xbox / DualSense / ...) into a
+    desktop mouse + keyboard — the SDL-pad equivalent of the Steam Controller's
+    firmware lizard mode (which Linux disables), synthesized because those pads
+    have no firmware desktop mode. Driven from sdl_gamepad_thread while the OSK
+    is closed (mirrors the Windows _SdlDesktopController; Linux has no ViGEm /
+    gamepad mode, so there's no game-feed or Home-hold mouse-only variant).
+
+    Mapping: right stick = cursor, left stick = arrow keys, ZR (right trigger) =
+    left click, ZL (left trigger) = right click, D-pad = arrow keys, Y = Space,
+    L/R bumpers = Page Up / Page Down. (Physical Y opens the OSK, handled in
+    sdl_gamepad_thread — so it is NOT a desktop key tap here.) Clicks/keys are
+    suppressed while Home/"..." is held so the open-keyboard chord doesn't also
+    fire desktop actions."""
+
+    MOUSE_DEADZONE = 6000
+    MOUSE_SPEED = 1400.0       # px/sec at full stick deflection
+    MOUSE_EXPONENT = 1.6
+    ARROW_DEADZONE = 14000
+    # Match the Steam Controller's desktop arrow cadence on Linux (the
+    # chord_watcher's ARROW_HOLD_DELAY / ARROW_REPEAT) so both controllers
+    # scroll at one speed.
+    ARROW_HOLD_DELAY = 0.35
+    ARROW_REPEAT = 0.05
+    _ARROW_KEYS = {
+        "UP":    sui.Keys.KEY_UP,
+        "DOWN":  sui.Keys.KEY_DOWN,
+        "LEFT":  sui.Keys.KEY_LEFT,
+        "RIGHT": sui.Keys.KEY_RIGHT,
+    }
+    _KEY_TAPS = (
+        (SCButtons.DPAD_UP,    sui.Keys.KEY_UP),
+        (SCButtons.DPAD_DOWN,  sui.Keys.KEY_DOWN),
+        (SCButtons.DPAD_LEFT,  sui.Keys.KEY_LEFT),
+        (SCButtons.DPAD_RIGHT, sui.Keys.KEY_RIGHT),
+        (SCButtons.Y,  sui.Keys.KEY_SPACE),
+        # A → Enter, B → Esc — matching the Steam Controller's desktop bindings.
+        # SDL maps face buttons by POSITION: the Switch Pro's BOTTOM button
+        # (physical "B") is SDL SOUTH = SCButtons.A → Enter, and its RIGHT button
+        # (physical "A") is SDL EAST = SCButtons.B → Esc. So the same screen
+        # position fires the same key as on the SC (physical B = Enter here).
+        (SCButtons.A,  sui.Keys.KEY_ENTER),
+        (SCButtons.B,  sui.Keys.KEY_ESC),
+        # X (Switch Pro physical Y) opens the OSK, so it's NOT a desktop key tap
+        # — otherwise opening would also fire a Backspace.
+        # L / R (bumpers) are handled separately in update() as tab-switching
+        # (Ctrl+Shift+Tab / Ctrl+Tab), not simple key taps.
+    )
+    # Triggers (ZR/ZL) as mouse buttons — the digital LT/RT bit engages at the
+    # trigger threshold, so a light pull clicks. ZR = primary (left).
+    _CLICKS = ((SCButtons.RT, "left"), (SCButtons.LT, "right"))
+    # Home(Steam)-button chords, mirroring the Steam Controller's: Home + left
+    # stick = volume (up/down, ramps while held) / track (left/right), at the
+    # SC's media-chord cadence.
+    MEDIA_DEADZONE = 14000
+    MEDIA_HOLD_DELAY = 0.5
+    MEDIA_VOL_REPEAT = 0.021
+    _MEDIA_KEYS = {
+        "UP":    sui.Keys.KEY_VOLUMEUP,
+        "DOWN":  sui.Keys.KEY_VOLUMEDOWN,
+        "LEFT":  sui.Keys.KEY_PREVIOUSSONG,
+        "RIGHT": sui.Keys.KEY_NEXTSONG,
+    }
+
+    def __init__(self, force_kill=None):
+        # uinput Mouse/Keyboard share module-global devices, so these don't
+        # create new devices — they drive the same cursor/keyboard as the SC.
+        self._mouse = sui.Mouse()
+        self._kb = sui.Keyboard()
+        # Callable that force-shutdowns the focused window (Home+B), or None.
+        self._force_kill = force_kill
+        self._last_t = 0.0
+        self._acc_x = 0.0
+        self._acc_y = 0.0
+        self._prev = 0
+        self._down = set()     # mouse buttons currently held (for click-drag)
+        self._arrow_zone = "NEUTRAL"
+        self._arrow_repeat_at = 0.0
+        # Home-chord state: L3 edge (play/pause), media-stick zone, VIEW edge +
+        # held-Alt (Alt+Tab), B latch (force-shutdown fires once per hold).
+        self._l3_prev = False
+        self._media_zone = "NEUTRAL"
+        self._media_repeat_at = 0.0
+        self._start_prev = False
+        self._alt_held = False
+        self._force_kill_done = False
+
+    def reset(self):
+        """Release any held button and clear edge/accumulator state, so a
+        handoff (OSK open, Steam-pause, pad unplug) never strands a click down
+        or fires a stale edge."""
+        for name in list(self._down):
+            self._mouse.button(name, False)
+        self._down.clear()
+        if self._alt_held:
+            self._kb.releaseEvent([sui.Keys.KEY_LEFTALT])
+            self._alt_held = False
+        self._prev = 0
+        self._acc_x = self._acc_y = 0.0
+        self._last_t = 0.0
+        self._arrow_zone = "NEUTRAL"
+        self._arrow_repeat_at = 0.0
+        self._media_zone = "NEUTRAL"
+        self._media_repeat_at = 0.0
+        self._l3_prev = False
+        self._start_prev = False
+        self._force_kill_done = False
+
+    @staticmethod
+    def _axis(v, deadzone, exponent):
+        if abs(v) <= deadzone:
+            return 0.0
+        sign = 1.0 if v > 0 else -1.0
+        mag = min(1.0, (abs(v) - deadzone) / (32767.0 - deadzone))
+        return sign * (mag ** exponent)
+
+    def update(self, sci, now):
+        b = sci.buttons
+        dt = now - self._last_t if self._last_t else 0.0
+        self._last_t = now
+        if dt <= 0.0 or dt > 0.1:
+            dt = 1.0 / 60.0
+
+        # Right stick -> cursor (stick-up moves up; screen Y grows downward).
+        # "Lizard mode Pointer Speed" (Nintendo Switch submenu) scales the speed.
+        _spd = self.MOUSE_SPEED * adusk_state.get_switch_mouse_speed()
+        self._acc_x += self._axis(sci.rstick_x, self.MOUSE_DEADZONE, self.MOUSE_EXPONENT) * _spd * dt
+        self._acc_y += -self._axis(sci.rstick_y, self.MOUSE_DEADZONE, self.MOUSE_EXPONENT) * _spd * dt
+        mvx, mvy = int(self._acc_x), int(self._acc_y)
+        self._acc_x -= mvx
+        self._acc_y -= mvy
+        if mvx or mvy:
+            self._mouse.move(mvx, mvy)
+
+        steam_held = bool(b & (SCButtons.STEAM | SCButtons.QAM))
+
+        # Home(Steam)-button chords (media / play-pause / Alt+Tab / force-kill),
+        # mirroring the Steam Controller. Gates internally on Home and releases
+        # Alt when Home is let go.
+        self._handle_steam_chords(sci, now, steam_held)
+
+        # Left stick -> arrow keys (one tap on deflection, then auto-repeat).
+        self._update_arrow_stick(sci.lstick_x, sci.lstick_y, now, steam_held)
+
+        rising = b & ~self._prev
+        falling = ~b & self._prev
+
+        # Mouse clicks: press/release so a held button drag-selects. Never START
+        # a click while Home is held (open chord), but always release one down.
+        for bit, name in self._CLICKS:
+            if (rising & bit) and not steam_held:
+                self._mouse.button(name, True)
+                self._down.add(name)
+            elif (falling & bit) and name in self._down:
+                self._mouse.button(name, False)
+                self._down.discard(name)
+
+        # Edge-triggered key taps, suppressed while Home is held so chords
+        # (Home+X = open keyboard) don't leak desktop keys.
+        if not steam_held:
+            for bit, key in self._KEY_TAPS:
+                if rising & bit:
+                    self._kb.pressEvent([key])
+                    self._kb.releaseEvent([key])
+            # L / R (bumpers) → previous / next browser tab (Ctrl+Shift+Tab /
+            # Ctrl+Tab), matching the L1/R1 = switch-tab console convention and
+            # the Steam Controller's bumpers.
+            if rising & SCButtons.LB:
+                self._kb.pressEvent([sui.Keys.KEY_LEFTCTRL])
+                self._kb.pressEvent([sui.Keys.KEY_LEFTSHIFT])
+                self._kb.pressEvent([sui.Keys.KEY_TAB])
+                self._kb.releaseEvent([sui.Keys.KEY_TAB])
+                self._kb.releaseEvent([sui.Keys.KEY_LEFTSHIFT])
+                self._kb.releaseEvent([sui.Keys.KEY_LEFTCTRL])
+            if rising & SCButtons.RB:
+                self._kb.pressEvent([sui.Keys.KEY_LEFTCTRL])
+                self._kb.pressEvent([sui.Keys.KEY_TAB])
+                self._kb.releaseEvent([sui.Keys.KEY_TAB])
+                self._kb.releaseEvent([sui.Keys.KEY_LEFTCTRL])
+            # L3 (left stick click) → middle click at the cursor (open a link in a
+            # new tab / close a tab), matching the Steam Controller. Home+L3 stays
+            # Play/Pause (handled in _handle_steam_chords, gated on Home).
+            if rising & SCButtons.L3:
+                self._mouse.button("middle", True)
+                self._mouse.button("middle", False)
+
+        # Remember this frame's buttons for next frame's rising/falling edges.
+        self._prev = b
+
+    def _update_arrow_stick(self, x, y, now, steam_held):
+        """Map left-stick deflection to arrow-key taps: one step on entering a
+        direction, then auto-repeat after a hold delay. y is +up (SDL Y already
+        inverted upstream), so stick-up sends Up."""
+        zone = "NEUTRAL"
+        if abs(x) > self.ARROW_DEADZONE or abs(y) > self.ARROW_DEADZONE:
+            if abs(y) >= abs(x):
+                zone = "UP" if y > 0 else "DOWN"
+            else:
+                zone = "RIGHT" if x > 0 else "LEFT"
+
+        fire = False
+        if zone != self._arrow_zone:
+            fire = zone != "NEUTRAL"
+            self._arrow_repeat_at = now + self.ARROW_HOLD_DELAY
+        elif zone != "NEUTRAL" and now >= self._arrow_repeat_at:
+            fire = True
+            self._arrow_repeat_at = now + self.ARROW_REPEAT
+        self._arrow_zone = zone
+
+        if fire and not steam_held:
+            key = self._ARROW_KEYS.get(zone)
+            if key is not None:
+                self._kb.pressEvent([key])
+                self._kb.releaseEvent([key])
+
+    def _handle_steam_chords(self, sci, now, steam_held):
+        """Home(Steam)-button chords, matching the Steam Controller's desktop
+        chords: Home+L3 = Play/Pause; Home+left stick = volume (up/down, ramps
+        while held) / previous/next track (left/right); Home+VIEW = Alt+Tab (hold
+        Home, each VIEW press advances one slot); Home+B = force-shutdown the
+        focused window. Edge-triggered so one press/deflection = one action."""
+        b = sci.buttons
+
+        # Home + L3 → Play/Pause (rising edge).
+        l3 = bool(b & SCButtons.L3)
+        if steam_held and l3 and not self._l3_prev:
+            self._kb.pressEvent([sui.Keys.KEY_PLAYPAUSE])
+            self._kb.releaseEvent([sui.Keys.KEY_PLAYPAUSE])
+        self._l3_prev = l3
+
+        # Home + left stick → volume (up/down) / track (left/right).
+        x, y = sci.lstick_x, sci.lstick_y
+        zone = "NEUTRAL"
+        if steam_held and (abs(x) > self.MEDIA_DEADZONE
+                           or abs(y) > self.MEDIA_DEADZONE):
+            if abs(y) >= abs(x):
+                zone = "UP" if y > 0 else "DOWN"
+            else:
+                zone = "RIGHT" if x > 0 else "LEFT"
+        fire = False
+        if zone != self._media_zone:
+            fire = zone != "NEUTRAL"
+            self._media_repeat_at = now + self.MEDIA_HOLD_DELAY
+        elif zone in ("UP", "DOWN") and now >= self._media_repeat_at:
+            fire = True
+            self._media_repeat_at = now + self.MEDIA_VOL_REPEAT
+        self._media_zone = zone
+        if fire:
+            key = self._MEDIA_KEYS.get(zone)
+            if key is not None:
+                self._kb.pressEvent([key])
+                self._kb.releaseEvent([key])
+
+        # Home + START ("+") → Alt+Tab. Hold Alt while Home is held so the
+        # switcher stays up; each "+" rising edge taps Tab once. Alt drops on
+        # Home release. (Uses "+"/START, not "-"/VIEW, per user preference for
+        # the Switch Pro.)
+        plus = bool(b & SCButtons.START)
+        if steam_held and plus and not self._start_prev:
+            if not self._alt_held:
+                self._kb.pressEvent([sui.Keys.KEY_LEFTALT])
+                self._alt_held = True
+            self._kb.pressEvent([sui.Keys.KEY_TAB])
+            self._kb.releaseEvent([sui.Keys.KEY_TAB])
+        self._start_prev = plus
+        if not steam_held and self._alt_held:
+            self._kb.releaseEvent([sui.Keys.KEY_LEFTALT])
+            self._alt_held = False
+
+        # Home + A → force-shutdown the focused window (once per hold). The
+        # Switch Pro's "A" button is the RIGHT face button = SDL EAST = SCButtons.B.
+        if steam_held and (b & SCButtons.B):
+            if not self._force_kill_done:
+                self._force_kill_done = True
+                if self._force_kill is not None:
+                    try:
+                        result = self._force_kill()
+                        print(f"[forcekill] Home+face -> {result}")
+                    except Exception as e:
+                        print(f"[forcekill] failed: {e!r}")
+        else:
+            self._force_kill_done = False
+
+
 # --- App --------------------------------------------------------------------
+
+# Steam Controller OSK L2/R2 actuation levels → analog trigger threshold
+# (0..32767; None = firmware full-pull digital bit only, the default). Lower
+# values engage Shift/Enter at a lighter pull. Only applied to the SC, OSK-only.
+_SC_ACTUATION_THRESHOLDS = {"default": None, "low": 3000}
+
+# Steam Controller "Pointer Speed" → right-stick mouse speed multiplier (1.0 =
+# the tuned default). Scales the OSK right-stick mouse + the SC desktop mouse.
+_SC_MOUSE_SPEEDS = {"low": 0.6, "medium": 1.0, "high": 1.6}
+
 
 class App:
     def __init__(self):
@@ -652,10 +1006,41 @@ class App:
         # Push the current autostart preference to disk so it matches the
         # saved setting (handles "user moved the binary" cases too).
         _apply_autostart(self.settings["start_at_login"])
-        # Publish the global haptics switch to the runtime flag the OSK
-        # haptic-click paths read. Without this the OSK ticks even when
-        # the user has Vibration set to off in a previous session.
-        adusk_state.set_rumble_enabled(self.settings["rumble_enabled"])
+        # Publish the per-controller haptics switches to the runtime flags the
+        # OSK haptic-click paths read (gated by the active controller's toggle).
+        adusk_state.set_rumble_enabled("sc", self.settings["rumble_enabled_sc"])
+        adusk_state.set_rumble_enabled("sdl", self.settings["rumble_enabled_switch"])
+        # Normalize + publish the selected OSK skin so screen.Screen picks it up
+        # the next time the keyboard opens. Fall back to the default if the
+        # saved name no longer matches a bundled skin.
+        if self.settings.get("skin") not in adusk_skins.available_skins():
+            self.settings["skin"] = adusk_skins.DEFAULT_SKIN
+        adusk_skins.set_active_skin(self.settings["skin"])
+        # Publish the OSK transparency level so screen.Screen renders it.
+        adusk_skins.set_transparency(self.settings.get("osk_transparency", "off"))
+        # Publish the OSK window size so screen.Screen() builds the window at
+        # the right dimensions the next time the keyboard opens.
+        adusk_screen.set_osk_size(self.settings.get("osk_size", "medium"))
+        # Publish the Steam Controller-only OSK settings (left-stick nav + L2/R2
+        # actuation) so controller.py applies them on the input thread.
+        adusk_state.set_sc_kbd_stick_nav(self.settings.get("sc_left_stick_nav", True))
+        adusk_state.set_sc_osk_trigger_threshold(
+            _SC_ACTUATION_THRESHOLDS.get(self.settings.get("sc_osk_trigger_actuation", "default")))
+        adusk_state.set_sc_mouse_speed(
+            _SC_MOUSE_SPEEDS.get(self.settings.get("sc_pointer_speed", "medium"), 1.0))
+        # Same for the Switch Pro Controller (left-stick nav + pointer speed).
+        adusk_state.set_switch_kbd_stick_nav(self.settings.get("switch_left_stick_nav", True))
+        adusk_state.set_switch_mouse_speed(
+            _SC_MOUSE_SPEEDS.get(self.settings.get("switch_pointer_speed", "medium"), 1.0))
+        # Seed the OSK's Shift/Enter glyph set from the last-used controller so
+        # the right hints (SC L2/R2 vs Switch Pro ZL/ZR) show on the very first
+        # open after launch, before any input. Then register a hook so a live
+        # controller switch is saved back to disk and survives a reboot.
+        saved_ctrl = self.settings.get("last_osk_controller", "sc")
+        if saved_ctrl not in ("sc", "sdl"):
+            saved_ctrl = "sc"
+        adusk_state.init_active_controller(saved_ctrl)
+        adusk_state.set_active_controller_persist(self._persist_active_controller)
 
         self._stop_event = threading.Event()
         # Set when Steam is running AND the user opted into pausing.
@@ -668,6 +1053,10 @@ class App:
         # Set while the OSK is on screen so we don't try to reopen it on top
         # of itself (the second SDL_Init would fail).
         self._kbd_open = False
+        # Controller family ("sc"/"sdl"/None) that requested the pending OSK
+        # open, so the OSK starts on that controller's glyphs. None = a
+        # non-controller open (tray menu / Ctrl+Alt+K) — keep the last-used one.
+        self._pending_open_controller = None
         # Reference to the pystray Icon, set in main() after construction.
         # Used by background threads to update tooltips / hide menu items.
         self._icon = None
@@ -684,9 +1073,47 @@ class App:
         # the discharging→charging edge (the "plugged in" notification).
         self._battery = None
         self._battery_label = None
+        # Latched True once a Steam Controller is ever detected this session, so
+        # the "Steam Controller" tray menu stays visible the whole session.
+        self._sc_ever_connected = False
+        # Same latch for a Nintendo Switch Pro / SDL pad — set in
+        # sdl_gamepad_thread; gates the "Switch Pro Controller" submenu.
+        self._switch_ever_connected = False
         self._low_warned_at = None
         self._charge_complete_notified = False
         self._was_charging = False
+
+        # SDL3 gamepad backend (Xbox/DualSense/Switch Pro/...). The tray owns a
+        # persistent SDL_INIT_GAMEPAD (on the main thread, here) so the OSK can
+        # borrow it via SDL_InitSubSystem without it being torn down on OSK
+        # close. sdl_gamepad_thread drives a desktop mouse/keyboard from the pad
+        # and opens the OSK on bare Y; while the OSK is open adusk polls this same
+        # source. Stays None if SDL init fails — the Steam Controller path is
+        # wholly unaffected.
+        # Allow gamepad events when no SDL window is focused — the OSK window is
+        # no-focus, and without this SDL freezes the pad to all-zero while it's
+        # open (set before SDL_Init in case the hint is read at subsystem init;
+        # adusk re-sets it too). This is what makes the pad drive the OSK.
+        S.SDL_SetHint(b"SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS", b"1")
+        # Keep SDL's HIDAPI driver off the Steam Controller. We drive the SC
+        # entirely through our own steamcontroller HID backend (never as an SDL
+        # gamepad); SDL3 recognizes the Triton PIDs 0x1304/0x1302 and grabs the
+        # device on GAMEPAD init, which blocks our exclusive open ("Block
+        # SteamInput Steam Controller grab") and can otherwise duplicate input.
+        S.SDL_SetHint(b"SDL_JOYSTICK_HIDAPI_STEAM", b"0")
+        self._sdl_source = None
+        try:
+            if S.SDL_Init(S.SDL_INIT_GAMEPAD):
+                self._sdl_source = adusk_inputsrc.Sdl3GamepadSource()
+            else:
+                print(f"SDL gamepad init failed: {S.get_error()}")
+        except Exception as e:
+            print(f"SDL gamepad backend unavailable: {e!r}")
+        # Hand the source to adusk so its main loop can poll it on the SDL
+        # event-pump thread while the OSK is open (this tray's sdl_gamepad_thread
+        # cedes then — SDL only refreshes gamepad state on the event-pump thread,
+        # so polling it here once the OSK's loop runs reads stale/blind frames).
+        adusk_state.set_sdl_source(self._sdl_source)
 
     # tray menu state predicates --------------------------------------------
 
@@ -699,8 +1126,18 @@ class App:
     def is_exit_on_steam_checked(self, item):
         return self.settings["exit_on_steam_launch"]
 
-    def is_rumble_enabled_checked(self, item):
-        return self.settings["rumble_enabled"]
+    def is_sc_rumble_checked(self, item):
+        return self.settings["rumble_enabled_sc"]
+
+    def is_switch_rumble_checked(self, item):
+        return self.settings["rumble_enabled_switch"]
+
+    def is_debug_unlocked(self, item):
+        """Visibility callback for the hidden Debug submenu."""
+        return self.settings["debug_menu_unlocked"]
+
+    def is_block_sc_hid_checked(self, item):
+        return self.settings["block_sc_hid"]
 
     def _kbd_menu_label(self, item):
         """Dynamic label for the top menu item: shows the action a click will
@@ -741,15 +1178,160 @@ class App:
             self.settings["disable_while_steam_running"] = False
         _save_settings(self.settings)
 
-    def toggle_rumble(self, icon, item):
-        # Global haptics switch — gates the OSK UI ticks (and any future
-        # gamepad-mode rumble path). Read from settings rather than
-        # item.checked: pystray's AppIndicator backend doesn't always
-        # populate item.checked correctly on callback.
-        new = not self.settings["rumble_enabled"]
-        self.settings["rumble_enabled"] = new
+    def toggle_sc_rumble(self, icon, item):
+        # Steam Controller haptics. Read from settings rather than item.checked:
+        # pystray's AppIndicator backend doesn't always populate item.checked.
+        new = not self.settings["rumble_enabled_sc"]
+        self.settings["rumble_enabled_sc"] = new
         _save_settings(self.settings)
-        adusk_state.set_rumble_enabled(new)
+        adusk_state.set_rumble_enabled("sc", new)
+
+    def toggle_switch_rumble(self, icon, item):
+        # Nintendo Switch (SDL pad) haptics. Settings-read, as above.
+        new = not self.settings["rumble_enabled_switch"]
+        self.settings["rumble_enabled_switch"] = new
+        _save_settings(self.settings)
+        adusk_state.set_rumble_enabled("sdl", new)
+
+    def toggle_debug_menu(self, icon, item):
+        new = not self.settings["debug_menu_unlocked"]
+        self.settings["debug_menu_unlocked"] = new
+        _save_settings(self.settings)
+
+    def toggle_block_sc_hid(self, icon, item):
+        new = not self.settings["block_sc_hid"]
+        self.settings["block_sc_hid"] = new
+        _save_settings(self.settings)
+        self._kick_sc()
+
+    def _kick_sc(self):
+        """Force the current SteamController loop to exit so chord_thread
+        rebuilds it with the new `block_sc_hid` setting (exclusive vs shared
+        HID open)."""
+        if self._current_sc is not None:
+            try:
+                self._current_sc.addExit()
+            except Exception:
+                pass
+
+    # Skin submenu: one radio item per bundled skin. pystray needs a distinct
+    # checked-predicate and action per name, so we build small closures. The
+    # AppIndicator backend re-reads the checked predicate when the menu opens,
+    # so a selection shows up without an explicit menu refresh.
+    def is_skin_checked(self, name):
+        return lambda item: self.settings.get("skin") == name
+
+    def select_skin(self, name):
+        def _select(icon, item):
+            self.settings["skin"] = name
+            _save_settings(self.settings)
+            adusk_skins.set_active_skin(name)
+            # If the keyboard is open it re-skins live on its next frame (the
+            # render loop polls skins.get_generation); otherwise it just opens
+            # with the new skin next time.
+        return _select
+
+    def is_transparency_checked(self, level):
+        return lambda item: self.settings.get("osk_transparency", "off") == level
+
+    def select_transparency(self, level):
+        # OSK transparency level (Keyboard Skin → Transparent submenu). Shares the
+        # skin generation counter, so an open keyboard switches live on its next
+        # frame; otherwise it applies on the next open.
+        def _select(icon, item):
+            self.settings["osk_transparency"] = level
+            _save_settings(self.settings)
+            adusk_skins.set_transparency(level)
+        return _select
+
+    # OSK size (Keyboard Skin → Size submenu): "small" / "medium" (default) /
+    # "full" (fills the display - good for a Steam Deck). Each OSK open
+    # builds a fresh Screen(), so this just needs to be saved/published.
+    def is_osk_size_checked(self, name):
+        return lambda item: self.settings.get("osk_size", "medium") == name
+
+    def select_osk_size(self, name):
+        def _select(icon, item):
+            self.settings["osk_size"] = name
+            _save_settings(self.settings)
+            adusk_screen.set_osk_size(name)
+        return _select
+
+    # --- Steam Controller submenu (shown only while an SC is connected) -------
+    def is_sc_connected(self, item):
+        # Latched: once an SC is ever detected the menu stays for the whole
+        # session. The live signal flickers (_current_sc goes None while adusk
+        # owns the SC with the OSK open), which made the menu vanish; battery_thread
+        # also sets the latch so it's set even if the menu is never opened live.
+        if self._current_sc is not None or self._battery is not None:
+            self._sc_ever_connected = True
+        # Debug menu mode forces every controller submenu visible regardless of
+        # connection, so settings can be tweaked without the hardware attached.
+        return self._sc_ever_connected or self.settings["debug_menu_unlocked"]
+
+    def is_switch_connected(self, item):
+        # Latched like is_sc_connected; set in sdl_gamepad_thread when a pad frame
+        # is read. Gates the "Switch Pro Controller" submenu.
+        return self._switch_ever_connected or self.settings["debug_menu_unlocked"]
+
+    def is_sc_left_stick_nav_checked(self, item):
+        return self.settings.get("sc_left_stick_nav", True)
+
+    def toggle_sc_left_stick_nav(self, icon, item):
+        self.settings["sc_left_stick_nav"] = not item.checked
+        _save_settings(self.settings)
+        adusk_state.set_sc_kbd_stick_nav(self.settings["sc_left_stick_nav"])
+
+    def is_sc_actuation_checked(self, level):
+        return lambda item: self.settings.get("sc_osk_trigger_actuation", "default") == level
+
+    def select_sc_actuation(self, level):
+        def _select(icon, item):
+            self.settings["sc_osk_trigger_actuation"] = level
+            _save_settings(self.settings)
+            adusk_state.set_sc_osk_trigger_threshold(_SC_ACTUATION_THRESHOLDS.get(level))
+        return _select
+
+    def is_sc_pointer_speed_checked(self, level):
+        return lambda item: self.settings.get("sc_pointer_speed", "medium") == level
+
+    def select_sc_pointer_speed(self, level):
+        def _select(icon, item):
+            self.settings["sc_pointer_speed"] = level
+            _save_settings(self.settings)
+            adusk_state.set_sc_mouse_speed(_SC_MOUSE_SPEEDS.get(level, 1.0))
+        return _select
+
+    # --- Switch Pro Controller submenu (same as the SC, no actuation) ----
+    def is_switch_left_stick_nav_checked(self, item):
+        return self.settings.get("switch_left_stick_nav", True)
+
+    def toggle_switch_left_stick_nav(self, icon, item):
+        self.settings["switch_left_stick_nav"] = not self.settings.get(
+            "switch_left_stick_nav", True)
+        _save_settings(self.settings)
+        adusk_state.set_switch_kbd_stick_nav(self.settings["switch_left_stick_nav"])
+
+    def is_switch_pointer_speed_checked(self, level):
+        return lambda item: self.settings.get("switch_pointer_speed", "medium") == level
+
+    def select_switch_pointer_speed(self, level):
+        def _select(icon, item):
+            self.settings["switch_pointer_speed"] = level
+            _save_settings(self.settings)
+            adusk_state.set_switch_mouse_speed(_SC_MOUSE_SPEEDS.get(level, 1.0))
+        return _select
+
+    def _persist_active_controller(self, kind):
+        """Save the controller (Steam Controller "sc" / SDL pad "sdl") last used
+        on the OSK so its Shift/Enter glyphs persist across restarts. Called by
+        adusk.state only when the active controller actually changes (on the
+        input thread), so writes are rare. No menu refresh — invisible to the
+        tray UI; it only affects which glyphs the keyboard draws."""
+        if kind not in ("sc", "sdl") or self.settings.get("last_osk_controller") == kind:
+            return
+        self.settings["last_osk_controller"] = kind
+        _save_settings(self.settings)
 
     def exit_app(self, icon, item):
         self._stop_event.set()
@@ -897,7 +1479,7 @@ class App:
             self._notify("Steam Controller battery getting low",
                          f"{pct}% remaining.")
         sc = self._current_sc
-        if sc is not None and adusk_state.is_rumble_enabled():
+        if sc is not None and adusk_state.is_rumble_enabled("sc"):
             try:
                 sc.haptic_click()
             except Exception:
@@ -921,6 +1503,10 @@ class App:
                 continue
             sc = self._current_sc
             batt = sc.get_battery() if sc is not None else None
+            # Latch SC-ever-connected so the "Steam Controller" menu stays for
+            # the session once detected (even while adusk owns the SC, OSK open).
+            if sc is not None or batt is not None:
+                self._sc_ever_connected = True
             now = time.monotonic()
             if batt is not None:
                 last_seen = now
@@ -1053,7 +1639,13 @@ class App:
         DPAD_REPEAT = 0.05
         MOUSE_DEADZONE = 6000
         MOUSE_SPEED = 1400.0
-        MOUSE_EXPONENT = 1.6
+        # Bigger exponent = longer ramp (more stick travel maps to slow speeds),
+        # so precise control needs less surgical thumb precision.
+        MOUSE_EXPONENT = 5.0
+        # Minimum speed (fraction of full) the instant the stick passes the
+        # deadzone, so the first bit of travel moves a usable amount (>1px/frame)
+        # for fine control instead of the near-zero the steep exponent gives.
+        MOUSE_MIN = 0.05
         # Trackpad position units are int16 (~-32767..32767). Scale to
         # screen pixels; lower = slower cursor. Tuned to match firmware
         # lizard's trackpad-mouse feel (~half-screen per full swipe).
@@ -1119,6 +1711,12 @@ class App:
                 self._b_was_pressed = False
                 self._r4_was_pressed = False
                 self._r5_was_pressed = False
+                # L1 / R1 (bumpers) → previous / next browser tab. Rising edge.
+                self._lb_was_pressed = False
+                self._rb_was_pressed = False
+                # L3 (left stick click) alone → middle click at the cursor
+                # (Steam+L3 is Play/Pause). Rising edge, tracked every frame.
+                self._l3_mid_prev = False
                 self._dpad_repeat_at = {}  # btn -> next-fire time
                 # Right trackpad → mouse cursor. Position-deltas while
                 # the finger is in contact; reset on lift so a finger
@@ -1317,24 +1915,26 @@ class App:
                 self._mouse_last_t = now
                 x = sci.rstick_x
                 y = sci.rstick_y
-                if (abs(x) <= MOUSE_DEADZONE and abs(y) <= MOUSE_DEADZONE):
+                mag = (x * x + y * y) ** 0.5
+                if mag <= MOUSE_DEADZONE:
                     self._mouse_acc_x = 0.0
                     self._mouse_acc_y = 0.0
                     return
                 if dt <= 0.0 or dt > 0.1:
                     dt = 1.0 / 60.0
-                span = 32767.0 - MOUSE_DEADZONE
-
-                def axis(v):
-                    if abs(v) <= MOUSE_DEADZONE:
-                        return 0.0
-                    sign = 1.0 if v > 0 else -1.0
-                    mag = min(1.0, (abs(v) - MOUSE_DEADZONE) / span)
-                    return sign * (mag ** MOUSE_EXPONENT)
-
+                # RADIAL speed: apply the curve to the stick's DISTANCE from
+                # center, then move along its unit direction, so a diagonal push
+                # is as fast as a pure horizontal/vertical one. (Per-axis exponent
+                # made diagonals much slower, very visible at high exponents.)
+                m = min(1.0, (mag - MOUSE_DEADZONE) / (32767.0 - MOUSE_DEADZONE))
+                unit = MOUSE_MIN + (1.0 - MOUSE_MIN) * (m ** MOUSE_EXPONENT)
+                scaled = unit / mag
                 # Screen Y grows downward; stick-up (positive y) → -dy.
-                self._mouse_acc_x += axis(x) * MOUSE_SPEED * dt
-                self._mouse_acc_y += -axis(y) * MOUSE_SPEED * dt
+                # "Pointer Speed" (tray Steam Controller menu) scales the base
+                # px/sec, matching the OSK right-stick mouse.
+                _spd = MOUSE_SPEED * adusk_state.get_sc_mouse_speed()
+                self._mouse_acc_x += (x * scaled) * _spd * dt
+                self._mouse_acc_y += -(y * scaled) * _spd * dt
                 mvx = int(self._mouse_acc_x)
                 mvy = int(self._mouse_acc_y)
                 self._mouse_acc_x -= mvx
@@ -1360,13 +1960,26 @@ class App:
                 view_now = bool(sci.buttons & SCButtons.VIEW)
                 now = time.monotonic()
 
+                # L3 (left stick click) ALONE → middle click at the cursor
+                # (Steam+L3 is Play/Pause in the media chords). For web browsing:
+                # middle-click a link to open it in a new background tab, or a tab
+                # to close it. Edge tracked every frame so releasing Steam while
+                # still holding L3 can't spuriously fire a click.
+                l3_mid_now = bool(sci.buttons & SCButtons.L3)
+                if not steam_now and l3_mid_now and not self._l3_mid_prev:
+                    self.chord.mouse.button("middle", True)
+                    self.chord.mouse.button("middle", False)
+                self._l3_mid_prev = l3_mid_now
+
                 # Steam release → drop Alt-Tab.
                 if not steam_now:
                     self.chord.release_alt()
 
                 # X (with or without Steam) → open OSK. Rising-edge so
-                # one press = one open.
+                # one press = one open. The Steam Controller opened it → start
+                # the OSK on its glyphs.
                 if x_now and not self._x_open_was_pressed:
+                    self.owner._pending_open_controller = "sc"
                     self.owner._open_kbd_event.set()
                     self.chord.release_all_held()
                     sc.addExit()
@@ -1397,11 +2010,18 @@ class App:
                 lt_now = bool(sci.buttons & SCButtons.LT) and not steam_now
                 if lt_now != self._lt_was_pressed:
                     self.chord.mouse.button("right", lt_now)
+                    # Haptic tick on the press (rising edge) so a click feels
+                    # like a button, matching the Windows desktop L2/R2 feedback.
+                    # Gated by the global vibration switch.
+                    if lt_now and adusk_state.is_rumble_enabled("sc"):
+                        sc.haptic_click()
                 self._lt_was_pressed = lt_now
 
                 rt_now = bool(sci.buttons & SCButtons.RT) and not steam_now
                 if rt_now != self._rt_was_pressed:
                     self.chord.mouse.button("left", rt_now)
+                    if rt_now and adusk_state.is_rumble_enabled("sc"):
+                        sc.haptic_click()
                 self._rt_was_pressed = rt_now
 
                 # Steam+Y → power off controller. Latched so it fires once.
@@ -1471,6 +2091,26 @@ class App:
                     self.chord.kb.releaseEvent([sui.Keys.KEY_PAGEDOWN])
                 self._r5_was_pressed = r5_now
 
+                # L1 / R1 (bumpers) → previous / next browser tab
+                # (Ctrl+Shift+Tab / Ctrl+Tab), matching the console convention.
+                lb_now = bool(sci.buttons & SCButtons.LB) and not steam_now
+                if lb_now and not self._lb_was_pressed:
+                    self.chord.kb.pressEvent([sui.Keys.KEY_LEFTCTRL])
+                    self.chord.kb.pressEvent([sui.Keys.KEY_LEFTSHIFT])
+                    self.chord.kb.pressEvent([sui.Keys.KEY_TAB])
+                    self.chord.kb.releaseEvent([sui.Keys.KEY_TAB])
+                    self.chord.kb.releaseEvent([sui.Keys.KEY_LEFTSHIFT])
+                    self.chord.kb.releaseEvent([sui.Keys.KEY_LEFTCTRL])
+                self._lb_was_pressed = lb_now
+
+                rb_now = bool(sci.buttons & SCButtons.RB) and not steam_now
+                if rb_now and not self._rb_was_pressed:
+                    self.chord.kb.pressEvent([sui.Keys.KEY_LEFTCTRL])
+                    self.chord.kb.pressEvent([sui.Keys.KEY_TAB])
+                    self.chord.kb.releaseEvent([sui.Keys.KEY_TAB])
+                    self.chord.kb.releaseEvent([sui.Keys.KEY_LEFTCTRL])
+                self._rb_was_pressed = rb_now
+
                 # L4 → hold Shift, L5 → hold Super. The release branch
                 # also runs while Steam is held so transient chords don't
                 # strand the modifier.
@@ -1497,7 +2137,8 @@ class App:
                     return
                 continue
             watcher = _Watcher(self)
-            sc = SteamController(callback=watcher.on_input, passive=True)
+            sc = SteamController(callback=watcher.on_input, passive=True,
+                                  exclusive=self.settings["block_sc_hid"])
             self._current_sc = sc
             try:
                 sc.run()
@@ -1543,9 +2184,153 @@ class App:
         except Exception as e:
             print(f"hotkey listener failed to start: {e}")
             return
+
+        # Esc closes the on-screen keyboard if it's open. Not suppressed, so
+        # Esc still reaches whatever window has focus as normal — this just
+        # adds the OSK close as a side effect (the OSK never has focus itself).
+        def _on_esc_press(key):
+            if self._stop_event.is_set():
+                return
+            if key == pkb.Key.esc and self._kbd_open:
+                try:
+                    adusk_state.close()
+                except Exception as e:
+                    print(f"Esc close failed: {e}")
+
+        esc_listener = None
+        try:
+            esc_listener = pkb.Listener(on_press=_on_esc_press)
+            esc_listener.daemon = True
+            esc_listener.start()
+        except Exception as e:
+            print(f"esc listener failed to start: {e}")
+
         self._stop_event.wait()
         try:
             listener.stop()
+        except Exception:
+            pass
+        if esc_listener is not None:
+            try:
+                esc_listener.stop()
+            except Exception:
+                pass
+
+    def sdl_gamepad_thread(self):
+        """Poll SDL-recognized pads (Switch Pro / Xbox / DualSense / ...) so a
+        non-Steam controller can (a) OPEN the OSK and (b) act as a desktop
+        mouse/keyboard — the synthesized equivalent of the Steam Controller's
+        firmware lizard mode (which Linux disables). Linux has no ViGEm, so
+        unlike Windows there's no game-feed path. The Steam Controller itself is
+        excluded by Sdl3GamepadSource (name match), so the two never fight.
+
+        Bare Y on the Switch Pro — positionally SCButtons.X, like the SC's bare-X
+        desktop open — opens the keyboard. While the OSK is open this thread
+        CEDES: `adusk.main` polls this same source on its own SDL event-pump
+        thread and publishes the frames, because SDL only refreshes gamepad state
+        on the event-pump thread — polling here too once that loop runs reads
+        stale/blind frames (froze the pad to no input, and a frozen deflected
+        stick drifted the cursor). Defensive throughout — errors must never take
+        down the tray."""
+        src = self._sdl_source
+        if src is None:
+            return
+        x_prev = False
+        # force_kill = Home+B → kill the focused window's process (the SDL-pad
+        # equivalent of the Steam Controller's Steam+B force-shutdown chord).
+        desktop = _SdlDesktopController(force_kill=_kill_focused_window)
+        was_kbd_open = False
+        osk_close_time = 0.0       # monotonic time of last OSK close (debounce)
+        OSK_REOPEN_COOLDOWN = 0.4  # ignore Y for this long after the OSK closes
+        steam_kill_prev = False    # Home+face edge while Steam-ceded (force-kill)
+        while not self._stop_event.is_set():
+            # Paused for Steam (disable_while_steam_running + Steam up): let Steam
+            # own the pad — don't inject desktop kb/mouse — matching how the
+            # Steam Controller path pauses (its _Watcher cedes on _steam_active).
+            if self._steam_active.is_set():
+                desktop.reset()
+                x_prev = False
+                # BUT still honor Home+B force-shutdown — its whole purpose is to
+                # kill a running (often Steam) game, which is exactly when we're
+                # ceded. Nothing else is injected. (Skip while the OSK is open so
+                # we don't double-poll the pad against adusk.)
+                sci = None
+                if not self._kbd_open:
+                    try:
+                        sci = src.poll()
+                    except Exception:
+                        sci = None
+                kill_now = bool(sci is not None
+                                and (sci.buttons & (SCButtons.STEAM | SCButtons.QAM))
+                                and (sci.buttons & SCButtons.B))  # Home + Switch A
+                if kill_now and not steam_kill_prev:
+                    try:
+                        print(f"[forcekill] (steam-ceded) Home+face -> "
+                              f"{_kill_focused_window()}")
+                    except Exception as e:
+                        print(f"[forcekill] failed: {e!r}")
+                steam_kill_prev = kill_now
+                self._stop_event.wait(0.05)
+                continue
+            steam_kill_prev = False
+            # Cede all SDL access while the OSK is open — adusk owns it then.
+            if self._kbd_open:
+                was_kbd_open = True
+                desktop.reset()
+                x_prev = True  # treat Y as held so its release doesn't re-open
+                self._stop_event.wait(0.05)
+                continue
+            # The OSK just closed — start a cooldown so buffered Y presses during
+            # close don't immediately re-open it, and force a clean rising edge.
+            if was_kbd_open:
+                was_kbd_open = False
+                osk_close_time = time.monotonic()
+                x_prev = True
+            try:
+                sci = src.poll()
+            except Exception as e:
+                print(f"sdl gamepad poll error: {e!r}")
+                sci = None
+            if sci is not None:
+                # A pad frame means a Switch Pro / SDL pad is connected — latch
+                # it so the "Switch Pro Controller" tray submenu appears.
+                if not self._switch_ever_connected:
+                    self._switch_ever_connected = True
+                # Bare Y (SCButtons.X on the Switch Pro's positional map) opens
+                # the OSK, matching the Steam Controller's bare-X desktop open.
+                # Rising edge so one press = one open; gated by the close cooldown.
+                x = bool(sci.buttons & SCButtons.X)
+                if (x and not x_prev and not self._kbd_open
+                        and (time.monotonic() - osk_close_time) > OSK_REOPEN_COOLDOWN):
+                    self._pending_open_controller = "sdl"
+                    self._open_kbd_event.set()
+                x_prev = x
+                # Desktop mouse/keyboard from the SDL pad (right stick = cursor,
+                # left stick / D-pad = arrows, ZR/ZL = clicks, Y = Space, bumpers
+                # = PageUp/Dn). Physical Y (= SCButtons.X) is the OSK opener and
+                # is excluded from the desktop key taps inside update().
+                try:
+                    desktop.update(sci, time.monotonic())
+                except Exception as e:
+                    print(f"sdl desktop update failed: {e!r}")
+            else:
+                x_prev = False
+                desktop.reset()
+            self._stop_event.wait(0.008)  # ~125 Hz
+
+    def _shutdown_sdl(self):
+        """Tear down the persistent SDL gamepad subsystem. Called from main()
+        on the main thread after the OSK loop has fully exited, so it never
+        races adusk.main()'s own SDL teardown."""
+        src = self._sdl_source
+        self._sdl_source = None
+        if src is not None:
+            try:
+                src.close()
+            except Exception:
+                pass
+        try:
+            S.SDL_Quit()
         except Exception:
             pass
 
@@ -1559,6 +2344,14 @@ def _open_osk_once(app):
             app._icon.update_menu()
         except Exception:
             pass
+    # Start the OSK on the glyphs of the controller that opened it: the Steam
+    # Controller (Steam+X) tags "sc", an SDL pad (Switch Guide+X) tags "sdl";
+    # a non-controller open (tray menu / Ctrl+Alt+K) leaves it on the last-used
+    # controller. set_active_controller persists the choice too.
+    opener = app._pending_open_controller
+    app._pending_open_controller = None
+    if opener is not None:
+        adusk_state.set_active_controller(opener)
     try:
         adusk_state.reset_session()
         adusk_app.main()
@@ -1576,6 +2369,44 @@ def _open_osk_once(app):
 
 
 def _build_menu(app):
+    # Transparency: a collapsible submenu with Off + three opacity levels
+    # (radio). The levels scale the whole transparent look uniformly — Low is
+    # 30% more opaque, High 30% more transparent, than the tuned Medium.
+    transparent_submenu = pystray.Menu(
+        pystray.MenuItem("Off", app.select_transparency("off"),
+                         checked=app.is_transparency_checked("off"), radio=True),
+        pystray.MenuItem("Low", app.select_transparency("low"),
+                         checked=app.is_transparency_checked("low"), radio=True),
+        pystray.MenuItem("Medium", app.select_transparency("medium"),
+                         checked=app.is_transparency_checked("medium"), radio=True),
+        pystray.MenuItem("High", app.select_transparency("high"),
+                         checked=app.is_transparency_checked("high"), radio=True),
+    )
+
+    # OSK window size: "Small" (less screen blocked), "Default" (the original
+    # 1286x369 size), "Full Screen" (fills the display - good for a Steam Deck).
+    size_submenu = pystray.Menu(
+        pystray.MenuItem("Small", app.select_osk_size("small"),
+                         checked=app.is_osk_size_checked("small"), radio=True),
+        pystray.MenuItem("Default", app.select_osk_size("medium"),
+                         checked=app.is_osk_size_checked("medium"), radio=True),
+        pystray.MenuItem("Full Screen", app.select_osk_size("full"),
+                         checked=app.is_osk_size_checked("full"), radio=True),
+    )
+
+    # Steam on-screen-keyboard skins (radio; applied on the next OSK open).
+    # The "Size" and "Transparent" submenus sit at the top, above the skin list.
+    skin_submenu = pystray.Menu(
+        pystray.MenuItem("Size", size_submenu),
+        pystray.MenuItem("Transparent", transparent_submenu),
+        pystray.Menu.SEPARATOR,
+        *[
+            pystray.MenuItem(name, app.select_skin(name),
+                             checked=app.is_skin_checked(name), radio=True)
+            for name in adusk_skins.available_skins()
+        ]
+    )
+
     steam_running_submenu = pystray.Menu(
         pystray.MenuItem(
             "Pause SteamlessKeyboard",
@@ -1588,6 +2419,78 @@ def _build_menu(app):
             checked=app.is_exit_on_steam_checked,
         ),
     )
+
+    # Startup-related settings, grouped under one submenu.
+    startup_submenu = pystray.Menu(
+        pystray.MenuItem(
+            "Start at login",
+            app.toggle_start_at_login,
+            checked=app.is_start_at_login_checked,
+        ),
+        pystray.MenuItem("When Steam is running", steam_running_submenu),
+        pystray.MenuItem("Advanced Settings", app.toggle_debug_menu,
+                         checked=app.is_debug_unlocked),
+    )
+
+    # Hidden Debug submenu, unlocked via "Startup → Debug menu". Mirrors
+    # windows/tray.py's debug_submenu minus "Block SteamInput Xbox Controller
+    # grab" (block_gamepad_takeover) — that toggle hides the virtual ViGEm
+    # Xbox 360 pad from Steam, and there's no ViGEm/uinput gamepad on Linux.
+    debug_submenu = pystray.Menu(
+        pystray.MenuItem(
+            "Block SteamInput Steam Controller grab",
+            app.toggle_block_sc_hid,
+            checked=app.is_block_sc_hid_checked,
+        ),
+    )
+
+    # Steam Controller settings (shown only while an SC is connected). A toggle
+    # for left-stick OSK navigation + a radio submenu for the L2/R2 OSK actuation
+    # point. SC-only; the actuation affects OSK Shift/Enter, not lizard/gamepad.
+    sc_actuation_submenu = pystray.Menu(
+        pystray.MenuItem("Default", app.select_sc_actuation("default"),
+                         checked=app.is_sc_actuation_checked("default"), radio=True),
+        pystray.MenuItem("Low", app.select_sc_actuation("low"),
+                         checked=app.is_sc_actuation_checked("low"), radio=True),
+    )
+    sc_pointer_speed_submenu = pystray.Menu(
+        pystray.MenuItem("Low", app.select_sc_pointer_speed("low"),
+                         checked=app.is_sc_pointer_speed_checked("low"), radio=True),
+        pystray.MenuItem("Medium", app.select_sc_pointer_speed("medium"),
+                         checked=app.is_sc_pointer_speed_checked("medium"), radio=True),
+        pystray.MenuItem("High", app.select_sc_pointer_speed("high"),
+                         checked=app.is_sc_pointer_speed_checked("high"), radio=True),
+    )
+    steam_controller_submenu = pystray.Menu(
+        pystray.MenuItem("Keyboard Sticks/Mouse controls",
+                         app.toggle_sc_left_stick_nav,
+                         checked=app.is_sc_left_stick_nav_checked),
+        pystray.MenuItem("Keyboard Trigger Actuation", sc_actuation_submenu),
+        pystray.MenuItem("Lizard mode Pointer Speed", sc_pointer_speed_submenu),
+        pystray.MenuItem("Vibration", app.toggle_sc_rumble,
+                         checked=app.is_sc_rumble_checked),
+    )
+
+    # Switch Pro Controller settings (shown only while a Switch Pro / SDL
+    # pad is connected): the same submenu as the SC, minus trigger actuation,
+    # plus its own Vibration toggle.
+    switch_pointer_speed_submenu = pystray.Menu(
+        pystray.MenuItem("Low", app.select_switch_pointer_speed("low"),
+                         checked=app.is_switch_pointer_speed_checked("low"), radio=True),
+        pystray.MenuItem("Medium", app.select_switch_pointer_speed("medium"),
+                         checked=app.is_switch_pointer_speed_checked("medium"), radio=True),
+        pystray.MenuItem("High", app.select_switch_pointer_speed("high"),
+                         checked=app.is_switch_pointer_speed_checked("high"), radio=True),
+    )
+    nintendo_switch_submenu = pystray.Menu(
+        pystray.MenuItem("Keyboard Sticks/Mouse controls",
+                         app.toggle_switch_left_stick_nav,
+                         checked=app.is_switch_left_stick_nav_checked),
+        pystray.MenuItem("Lizard mode Pointer Speed", switch_pointer_speed_submenu),
+        pystray.MenuItem("Vibration", app.toggle_switch_rumble,
+                         checked=app.is_switch_rumble_checked),
+    )
+
     return pystray.Menu(
         pystray.MenuItem(
             app.battery_menu_label,
@@ -1601,17 +2504,14 @@ def _build_menu(app):
             default=True,
         ),
         pystray.Menu.SEPARATOR,
-        pystray.MenuItem(
-            "Start at login",
-            app.toggle_start_at_login,
-            checked=app.is_start_at_login_checked,
-        ),
-        pystray.MenuItem("When Steam is running", steam_running_submenu),
-        pystray.MenuItem(
-            "Vibration",
-            app.toggle_rumble,
-            checked=app.is_rumble_enabled_checked,
-        ),
+        pystray.MenuItem("Startup", startup_submenu),
+        pystray.MenuItem("Steam Controller", steam_controller_submenu,
+                         visible=app.is_sc_connected),
+        pystray.MenuItem("Switch Pro Controller", nintendo_switch_submenu,
+                         visible=app.is_switch_connected),
+        pystray.MenuItem("Keyboard Skin", skin_submenu),
+        pystray.MenuItem("Advanced Settings", debug_submenu,
+                         visible=app.is_debug_unlocked),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem("Exit", app.exit_app),
     )
@@ -1637,6 +2537,7 @@ def main():
         threading.Thread(target=app.steam_watch_thread, daemon=True).start()
         threading.Thread(target=app.battery_thread, daemon=True).start()
         threading.Thread(target=app.device_watch_thread, daemon=True).start()
+        threading.Thread(target=app.sdl_gamepad_thread, daemon=True).start()
         print(f"{TRAY_TITLE} (no-tray) running. Steam+X or Ctrl+Alt+K to open.")
         try:
             while not app._stop_event.is_set():
@@ -1646,6 +2547,7 @@ def main():
         except KeyboardInterrupt:
             pass
         app._stop_event.set()
+        app._shutdown_sdl()
         return
 
     image = _load_icon_image()
@@ -1696,6 +2598,7 @@ def main():
     threading.Thread(target=app.steam_watch_thread, daemon=True).start()
     threading.Thread(target=app.battery_thread, daemon=True).start()
     threading.Thread(target=app.device_watch_thread, daemon=True).start()
+    threading.Thread(target=app.sdl_gamepad_thread, daemon=True).start()
 
     try:
         while not app._stop_event.is_set():
@@ -1710,6 +2613,7 @@ def main():
             icon.stop()
         except Exception:
             pass
+        app._shutdown_sdl()
 
 
 if __name__ == "__main__":

@@ -20,7 +20,7 @@ keys:
   - {label: "=", shifted: "+",  keycode: KEY_EQUAL}
   - {label: "", keycode: KEY_BACKSPACE, width_weight: 1.4, modifier: true, align: left, valign: bottom, font_size: 17, glyph: glyph_x.png}
 
-- - {label: "Tab", keycode: KEY_TAB, width_weight: 1.4, modifier: true, align: left, valign: bottom}
+- - {label: "Tab", keycode: KEY_TAB, width_weight: 1.4, modifier: true, align: left, valign: bottom, outline_opacity: 0.33}
   - {label: "q", shifted: "Q", keycode: KEY_Q}
   - {label: "w", shifted: "W", keycode: KEY_W}
   - {label: "e", shifted: "E", keycode: KEY_E}
@@ -31,11 +31,11 @@ keys:
   - {label: "i", shifted: "I", keycode: KEY_I}
   - {label: "o", shifted: "O", keycode: KEY_O}
   - {label: "p", shifted: "P", keycode: KEY_P}
-  - {label: "[", shifted: "{", keycode: KEY_LEFTBRACE}
-  - {label: "]", shifted: "}", keycode: KEY_RIGHTBRACE}
-  - {label: "\\", shifted: "|", keycode: KEY_BACKSLASH}
+  - {label: "[", shifted: "{", keycode: KEY_LEFTBRACE, outline_opacity: 0.33}
+  - {label: "]", shifted: "}", keycode: KEY_RIGHTBRACE, outline_opacity: 0.33}
+  - {label: "\\", shifted: "|", keycode: KEY_BACKSLASH, outline_opacity: 0.33}
 
-- - {label: "Caps", keycode: KEY_CAPSLOCK, width_weight: 1.6, modifier: true, align: left, valign: bottom, glyph: glyph_l3.png}
+- - {label: "Caps", keycode: KEY_CAPSLOCK, width_weight: 1.6, modifier: true, align: left, valign: bottom, glyph: glyph_l3.png, outline_opacity: 0.33}
   - {label: "a", shifted: "A", keycode: KEY_A}
   - {label: "s", shifted: "S", keycode: KEY_S}
   - {label: "d", shifted: "D", keycode: KEY_D}
@@ -46,10 +46,10 @@ keys:
   - {label: "k", shifted: "K", keycode: KEY_K}
   - {label: "l", shifted: "L", keycode: KEY_L}
   - {label: ";", shifted: ":",  keycode: KEY_SEMICOLON}
-  - {label: "'", shifted: "\"", keycode: KEY_APOSTROPHE}
-  - {label: "Enter", keycode: KEY_ENTER, width_weight: 1.7, modifier: true, align: right, valign: bottom, glyph: glyph_r2.png}
+  - {label: "'", shifted: "\"", keycode: KEY_APOSTROPHE, legacy_label_pos: true}
+  - {label: "Enter", keycode: KEY_ENTER, width_weight: 1.7, modifier: true, align: right, valign: bottom, glyph: sc_r2_md.png, outline_opacity: 0.33}
 
-- - {label: "Shift", behavior: shift, keycode: KEY_LEFTSHIFT, width_weight: 2.0, modifier: true, align: left, valign: bottom, glyph: glyph_l2.png}
+- - {label: "Shift", behavior: shift, keycode: KEY_LEFTSHIFT, width_weight: 2.0, modifier: true, align: left, valign: bottom, glyph: glyph_l2.png, outline_opacity: 0.33}
   - {label: "z", shifted: "Z", keycode: KEY_Z}
   - {label: "x", shifted: "X", keycode: KEY_X}
   - {label: "c", shifted: "C", keycode: KEY_C}
@@ -57,14 +57,14 @@ keys:
   - {label: "b", shifted: "B", keycode: KEY_B}
   - {label: "n", shifted: "N", keycode: KEY_N}
   - {label: "m", shifted: "M", keycode: KEY_M}
-  - {label: ",", shifted: "<", keycode: KEY_COMMA, dpad_down: 3}
-  - {label: ".", shifted: ">", keycode: KEY_DOT}
-  - {label: "/", shifted: "?", keycode: KEY_SLASH}
-  - {label: "Shift", behavior: shift, keycode: KEY_RIGHTSHIFT, width_weight: 2.0, modifier: true, align: right, valign: bottom, glyph: glyph_l2.png}
+  - {label: ",", shifted: "<", keycode: KEY_COMMA, dpad_down: 3, legacy_label_pos: true}
+  - {label: ".", shifted: ">", keycode: KEY_DOT, legacy_label_pos: true}
+  - {label: "/", shifted: "?", keycode: KEY_SLASH, legacy_label_pos: true, outline_opacity: 0.33}
+  - {label: "Shift", behavior: shift, keycode: KEY_RIGHTSHIFT, width_weight: 2.0, modifier: true, align: right, valign: bottom, glyph: glyph_l2.png, outline_opacity: 0.33}
 
 - - {label: "", behavior: emoji, width_weight: 1.2, modifier: true, glyph: glyph_smiley.png}
   - {label: "", keycode: KEY_SPACE, width_weight: 6.0, align: left, glyph: glyph_y.png}
-  - {label: "◀", shifted: "▲", keycode: KEY_LEFT, shift_keycode: KEY_UP, width_weight: 1.2, modifier: true, font: symbol, font_size: 18}
-  - {label: "▶", shifted: "▼", keycode: KEY_RIGHT, shift_keycode: KEY_DOWN, width_weight: 1.2, modifier: true, font: symbol, font_size: 18}
-  - {label: "Paste", behavior: paste, width_weight: 1.2, modifier: true}
-  - {label: "Move", behavior: move, width_weight: 1.4, modifier: true, valign: top, text_color: "#7B7E82", bg_color: "#0E141B", glyph: glyph_keyboard.png, shift_glyph: "", shift_valign: center}
+  - {label: "◀", shifted: "▲", keycode: KEY_LEFT, shift_keycode: KEY_UP, width_weight: 1.2, modifier: true, font: symbol, font_size: 17, shadow_font_size: 16, text_dx: -1, legacy_label_pos: true, dual_top_dy: 2, dual_bottom_dy: -2, outline_px: 1.0}
+  - {label: "▶", shifted: "▼", keycode: KEY_RIGHT, shift_keycode: KEY_DOWN, width_weight: 1.2, modifier: true, font: symbol, font_size: 17, shadow_font_size: 16, text_dx: 1, legacy_label_pos: true, dual_top_dy: 2, dual_bottom_dy: -2, outline_px: 0.5}
+  - {label: "Paste", shifted: "Copy", behavior: paste, width_weight: 1.2, modifier: true, dual_top_dy: 4, dual_bottom_dy: 4, outline_opacity: 0.33}
+  - {label: "Move", behavior: move, width_weight: 1.4, modifier: true, valign: top, text_color: "skin:shadow", bg_color: "skin:key", glyph: glyph_keyboard.png, shift_glyph: "", shift_valign: center, dual_top_dy: 4}

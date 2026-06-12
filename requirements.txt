@@ -5,7 +5,9 @@
 # pulls the right set on each runner (see .github/workflows/build.yml).
 
 # ---- shared ----
-PySDL2
+# (No PySDL2 — rendering/input go through the vendored hand-rolled sdl3w ctypes
+#  binding: Windows ships SDL3 DLLs in windows/sdl3w/dll; Linux loads the system
+#  libSDL3 / libSDL3_ttf.)
 Pillow
 pynput
 hidapi
@@ -13,7 +15,6 @@ PyYAML
 pystray
 
 # ---- Windows only ----
-PySDL2-dll ; sys_platform == "win32"     # bundles the SDL2 DLLs (imported as sdl2dll by windows/build.py)
 vgamepad ; sys_platform == "win32"       # ViGEm virtual Xbox 360 gamepad
 
 # ---- Linux only ----
