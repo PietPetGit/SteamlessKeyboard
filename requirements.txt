@@ -18,7 +18,7 @@ pystray
 vgamepad ; sys_platform == "win32"       # ViGEm virtual Xbox 360 gamepad
 
 # ---- Linux only ----
-PyGObject ; sys_platform == "linux"      # gi / AppIndicator tray backend (linux/tray_linux.py)
+PyGObject<3.52 ; sys_platform == "linux" # gi / AppIndicator tray backend (linux/tray_linux.py)
 
 # ---- build tool (used by CI to produce the release binaries) ----
 pyinstaller
