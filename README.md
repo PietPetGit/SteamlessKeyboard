@@ -93,6 +93,7 @@ controller. To use the Switch Pro normally again, untick **Enable device hiding*
 - Forked from [archshift/adusk](https://github.com/archshift/adusk)
 - Gamepad translation inspired by [ddeverill/SteamlessController](https://github.com/ddeverill/SteamlessController)
 - Virtual gamepad driver by [Nefarius/ViGEmBus](https://github.com/nefarius/ViGEmBus)
+- Windows virtual gamepad wrapper vendored from [yannbouteiller/vgamepad](https://github.com/yannbouteiller/vgamepad)
 - Rumble implementation adapted from [CrazyCritic89/SteamHapticsSinger](https://github.com/CrazyCritic89/SteamHapticsSinger)
 - Battery-status parsing referenced from [samueltoken/Bloss_battery_indicator](https://github.com/samueltoken/Bloss_battery_indicator)
 

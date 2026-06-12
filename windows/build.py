@@ -53,10 +53,12 @@ def _run_pyinstaller():
         "--hidden-import", "pynput.keyboard._win32",
         "--hidden-import", "pynput.mouse._win32",
         "--hidden-import", "PIL._tkinter_finder",
-        # vgamepad ships ViGEmClient.dll inside its package; collect-all
-        # picks up the dll + the .pyd ctypes shim so gamepad mode works
-        # inside the frozen exe.
-        "--collect-all", "vgamepad",
+        # vgamepad is vendored under windows/vgamepad; import paths are static
+        # but the ViGEmClient DLLs are added explicitly below.
+        "--hidden-import", "vgamepad",
+        "--hidden-import", "vgamepad.win.virtual_gamepad",
+        "--hidden-import", "vgamepad.win.vigem_client",
+        "--hidden-import", "vgamepad.win.vigem_commons",
         # Our hand-rolled SDL3 binding is imported transitively (adusk.screen
         # -> sdl3w); name it explicitly so PyInstaller always bundles it.
         "--hidden-import", "sdl3w",
@@ -71,6 +73,13 @@ def _run_pyinstaller():
         raise SystemExit(f"no SDL3 DLLs found in {sdl_dll_dir}")
     for dll in sdl_dlls:
         cmd += ["--add-binary", f"{dll};sdl3w/dll"]
+
+    vigem_client_dir = os.path.join(PROJECT_DIR, "vgamepad", "win", "vigem", "client")
+    for arch in ("x64", "x86"):
+        dll = os.path.join(vigem_client_dir, arch, "ViGEmClient.dll")
+        if not os.path.isfile(dll):
+            raise SystemExit(f"ViGEmClient.dll not found: {dll}")
+        cmd += ["--add-binary", f"{dll};vgamepad/win/vigem/client/{arch}"]
 
     cmd.append(ENTRY)
     print("running:", " ".join(cmd))
