@@ -30,6 +30,10 @@ triton_probe_*.txt
 release.txt
 Push_Github.md
 OLD VERSION/
+done.txt
+fix.txt
+resume*.txt
+.local-archive/
 
 # ---- Editor / OS / agent scratch ----
 *.tmp
@@ -38,5 +42,7 @@ OLD VERSION/
 node_modules/
 .idea/
 .vscode/
+.codex/
+.codex-local/
 .claude/
 claude-resume/
