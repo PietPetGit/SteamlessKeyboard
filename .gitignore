@@ -36,6 +36,8 @@ resume*.txt
 .local-archive/
 
 # ---- Editor / OS / agent scratch ----
+AGENTS.md
+CLAUDE.md
 *.tmp
 *.log
 .DS_Store
