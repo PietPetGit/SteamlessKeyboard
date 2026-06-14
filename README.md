@@ -1,14 +1,13 @@
 # SteamlessKeyboard
-The goal is to **replicate how the Steam Controller (2026) behaves under Steam's default configuration** so that, with Steam closed, the controller works like you are used to.
 
-> ⚠️ **Requires the May 22, 2026 Steam Controller firmware update.** This program will not work with earlier firmware.
+Take full control of your PC with any gamepad. We've reimagined **and improved** upon Steam controllers PC controls, bringing it to every controller out there
 
 ## Features
 - Works on Windows/Linux without Steam running
-- Recreates Steam's on-screen keyboard
-- Recreates Steam controllers default key bindings
-- Translates Steam Controller inputs into a Xbox 360 gamepad (has lower latency than SISR and VIIPER)
-- Smart gamepad mode — Smooth switching between gamepad and lizard mode
+- Recreates Steam's on-screen keyboard, customisation and skins, keybind control, simultanious multi typing with every input method!
+- Recreates the Steam Controller's default key bindings
+- Translates controller input into a Xbox 360 gamepad (has lower latency than SISR and VIIPER)
+- Smart gamepad mode — Smooth switching between gamepad and pc controls
 - Use Keyboard on Windows Lock screen
 
 
@@ -27,22 +26,36 @@ Run it and follow the prompts. You only need to do this once. The keyboard will 
 
 ### 2. Download SteamlessKeyboard
 
-- Windows: download `SteamlessKeyboard-windows.zip` from the [Releases page](https://github.com/PietPetGit/SteamlessKeyboard/releases), extract it, and run `SteamlessKeyboard-windows.exe`.
-- Linux: download `SteamlessKeyboard-linux.tar.gz`, extract it, and run `SteamlessKeyboard`.
+- Grab `SteamlessKeyboard.exe` from the [Releases page](https://github.com/PietPetGit/SteamlessKeyboard/releases)
+- Drop it anywhere on your machine and run it
 
-### 3. Configure startup behavior (optional)
-Right-click the <img src="windows/assets/SteamlessController_seethrough.png" width="20" style="vertical-align:middle"> tray icon to toggle:
+### 3. Configure settings (optional)
+Right-click the <img src="windows/assets/SteamlessController_seethrough.png" width="20" style="vertical-align:middle"> tray icon:
+
 |  |  |
 |--------|-------------|
-| **Start with Windows** | Auto-launch on boot |
-| **When Steam Is Running → Pause** | Pause the listener while Steam is active (lets Steam grab the controller) |
-| **When Steam Is Running → Exit** | Fully exit the app when Steam starts |
+| **Startup → Start with Windows** | Auto-launch on boot |
+| **Startup → When Steam Is Running → Pause** | Pause the listener while Steam is active |
+| **Startup → When Steam Is Running → Exit** | Fully exit the app when Steam starts |
+| **Startup → Advanced Settings** | Reveals the hidden **Advanced Settings** menu (see below) |
 ||
-| **Gamepad Mode → Auto enable** | Automatically activate gamepad mode when a game is in the foreground *(default)* |
-| **Gamepad Mode → Always enable** | Keep gamepad mode on at all times (hold Steam + trackpad to control the mouse) |
+| **Gamepad Mode → Auto enable** | Automatically activate gamepad mode when a game is in the foreground |
+| **Gamepad Mode → Always enable** | Keep gamepad mode on at all times (hold Home/Steam + stick to control the mouse) |
 | **Gamepad Mode → Off** | Disable the virtual gamepad entirely |
-| **Vibration** | Toggle rumble / haptic feedback |
-| **Debug** *(hidden — toggle Vibration 4× in a row to reveal/hide)* | **Block SteamInput Steam Controller grab** — made for stopping SteamInput / Big Picture from opening when using media controls |
+||
+| **Steam Controller/Switch Pro Controller** *(shown while one is connected)* | |
+| → Keyboard Sticks/Mouse controls | Turn off to make the stick and mouse controls ignore the keyboard |
+| → Keyboard Trigger Actuation | How far to pull the triggers to input keys on the keyboard — Default / Low |
+| → PC mode Pointer Speed | Right stick mouse pointer speed — Low / Medium / High |
+| → Vibration | Toggle rumble / haptic feedback |
+||
+| **Keyboard Skin → Size** | On-screen keyboard size — Small / Default / Full Screen |
+| **Keyboard Skin → Transparent** | On-screen keyboard transparency — Off / Low / Medium / High |
+| **Keyboard Skin →** *(theme list)* | Pick one of Steam's official on-screen keyboard color themes |
+||
+| **Advanced Settings** *(hidden until enabled via Startup → Advanced Settings)* | |
+| → Block SteamInput Steam Controller grab | Stops SteamInput / Big Picture from opening when using media controls |
+| → Block SteamInput Xbox Controller grab | Hides the virtual Xbox controller from SteamInput so Steam doesn't take it over |
 
 ## Optional: Lock-screen keyboard (windows only)
 
@@ -51,13 +64,11 @@ Windows **lock screen**, so you can type your password and sign in without a
 physical keyboard. It is **not** part of core SteamlessKeyboard and carries a
 real security trade-off — read
 [windows/lockscreen-keyboard/README.md](windows/lockscreen-keyboard/README.md)
-before installing. The installer files are included in the Windows release zip.
+before installing.
 
 ## Optional: Nintendo Switch Pro Controller in gamepad mode (windows only)
 
-**Only for the Switch Pro, and optional.** In gamepad mode the physical Switch
-Pro stays visible to games and spams phantom input (buttons 1–8) on top of our
-virtual Xbox pad. Hide it with the free **HidHide** driver — a one-time setup:
+**Only for the Switch Pro, to get gamepad mode working** The switch pro controller spams phantom input (buttons 1–8) to fix this you need to isntall **HidHide** driver — a one-time setup:
 
 1. Install **HidHide** — `winget install Nefarius.HidHide` (or the [installer](https://github.com/nefarius/HidHide/releases)) — then **reboot**.
 2. Open **HidHide Configuration Client** and:
@@ -70,7 +81,7 @@ controller. To use the Switch Pro normally again, untick **Enable device hiding*
 
 ---
 
-## Controller Keybinds
+## Controller Keybinds (pc mode)
 
 | Input | Action |
 |-------|--------|
@@ -93,34 +104,5 @@ controller. To use the Switch Pro normally again, untick **Enable device hiding*
 - Forked from [archshift/adusk](https://github.com/archshift/adusk)
 - Gamepad translation inspired by [ddeverill/SteamlessController](https://github.com/ddeverill/SteamlessController)
 - Virtual gamepad driver by [Nefarius/ViGEmBus](https://github.com/nefarius/ViGEmBus)
-- Windows virtual gamepad wrapper vendored from [yannbouteiller/vgamepad](https://github.com/yannbouteiller/vgamepad)
 - Rumble implementation adapted from [CrazyCritic89/SteamHapticsSinger](https://github.com/CrazyCritic89/SteamHapticsSinger)
 - Battery-status parsing referenced from [samueltoken/Bloss_battery_indicator](https://github.com/samueltoken/Bloss_battery_indicator)
-
-## Fonts
-
-The on-screen keyboard bundles these open-license fonts (full license texts ship
-alongside them in `windows/data/fonts/` and `linux/data/fonts/`):
-
-- **Selawik Semibold** — © 2015 Microsoft Corporation, licensed under the
-  [SIL Open Font License 1.1](https://github.com/microsoft/Selawik). An open,
-  Segoe-UI-metric-compatible typeface; used for the key labels.
-- **DejaVu Sans (Condensed Bold)** — [DejaVu Fonts license](https://dejavu-fonts.github.io/License.html)
-  (a permissive Bitstream Vera / public-domain derivative); used for the arrow-key
-  shapes (◀ ▶ ▲ ▼) and as a fallback.
-
-> Note: Steam's own keyboard uses *Motiva Sans*, and Windows' *Segoe UI* is a
-> close match — but both are proprietary and are **not** bundled or redistributed.
-> Selawik is the open, metric-compatible stand-in.
-
-## Building from source
-
-Install Python 3.12+ dependencies, then build from the platform folder:
-
-```bash
-python -m pip install -r requirements.txt
-cd windows && python build.py
-cd linux && python build.py
-```
-
-Release automation is documented in [RELEASE.md](RELEASE.md).
