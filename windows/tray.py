@@ -15,7 +15,6 @@ import os
 import sys
 import threading
 import time
-import winreg
 from ctypes import wintypes
 
 
@@ -106,15 +105,18 @@ from adusk import inputsrc as adusk_inputsrc  # noqa: E402
 from adusk import screen as adusk_screen  # noqa: E402
 from adusk import skins as adusk_skins  # noqa: E402
 from adusk import state as adusk_state  # noqa: E402
+import autostart  # noqa: E402
 
 
 SETTINGS_FILENAME = "settings.json"
-RUN_REG_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
-RUN_REG_NAME = "SteamControllerKeyboard"
 STEAM_PROC_NAME = "steam.exe"
 
 DEFAULT_SETTINGS = {
-    "start_with_windows": True,
+    # Default OFF: a freshly downloaded, unsigned binary that silently adds
+    # itself to autostart on first launch is exactly the "drive-by persistence"
+    # pattern Defender's ML flags. Users opt in via the tray "Start with
+    # Windows" toggle, which is a deliberate, user-initiated action.
+    "start_with_windows": False,
     "disable_while_steam_running": True,
     "exit_on_steam_launch": False,
     # When on, the controller is presented to the OS as a virtual Xbox 360
@@ -822,24 +824,16 @@ def _chime_log(msg):
         pass
 
 
-# --- Windows "Run on startup" registry --------------------------------------
+# --- Windows "launch at logon" ----------------------------------------------
+# Autostart is a Start Menu Startup-folder shortcut, not an HKCU\...\Run value:
+# Microsoft Defender's behavioral ML flagged the Run-key write
+# (Behavior:Win32/Persistence.A!ml) on unsigned, freshly downloaded binaries and
+# quarantined the app on first launch. The Startup shortcut hooks the same logon
+# event without that signature. See autostart.py; set_enabled() also clears the
+# old Run value so migrating users stop tripping the detection.
 
-def _apply_startup_registry(enabled):
-    try:
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_REG_KEY, 0,
-                            winreg.KEY_SET_VALUE) as key:
-            if enabled:
-                value = f'"{_exe_path()}"'
-                if not _is_frozen():
-                    value = f'"{sys.executable}" "{_exe_path()}"'
-                winreg.SetValueEx(key, RUN_REG_NAME, 0, winreg.REG_SZ, value)
-            else:
-                try:
-                    winreg.DeleteValue(key, RUN_REG_NAME)
-                except FileNotFoundError:
-                    pass
-    except OSError as e:
-        print(f"registry update failed: {e}")
+def _apply_autostart(enabled):
+    autostart.set_enabled(bool(enabled))
 
 
 # --- Lock-screen guard ------------------------------------------------------
@@ -1876,7 +1870,7 @@ class App:
         self.settings = _load_settings()
         # Push the current startup setting into the registry so the on-disk
         # state matches the user's saved preference.
-        _apply_startup_registry(self.settings["start_with_windows"])
+        _apply_autostart(self.settings["start_with_windows"])
         # Publish the per-controller haptics switches to the shared runtime flags
         # all haptic paths (UI ticks + gamepad/desktop rumble) read.
         adusk_state.set_rumble_enabled("sc", self.settings["rumble_enabled_sc"])
@@ -2253,7 +2247,7 @@ class App:
     def toggle_start_with_windows(self, icon, item):
         self.settings["start_with_windows"] = not item.checked
         _save_settings(self.settings)
-        _apply_startup_registry(self.settings["start_with_windows"])
+        _apply_autostart(self.settings["start_with_windows"])
 
     def toggle_block_sc_hid(self, icon, item):
         self.settings["block_sc_hid"] = not item.checked
