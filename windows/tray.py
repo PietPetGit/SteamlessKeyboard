@@ -65,8 +65,31 @@ _pystray_track_popup_menu_ex = _pystray_win32.TrackPopupMenuEx
 
 
 def _track_popup_menu_ex_left(hmenu, flags, x, y, hwnd, params):
+    # Anchor the menu to the RIGHT edge of the monitor under the cursor so the
+    # right-align/left-flip behavior described above kicks in. We clamp to *that*
+    # monitor instead of using a blind `x + 10000`: a large fixed offset can push
+    # the anchor point onto a monitor further to the right, so on a multi-monitor
+    # setup the whole menu would open on the wrong screen (e.g. a right-hand
+    # monitor when the tray was clicked on the middle one). MonitorFromPoint +
+    # GetMonitorInfo keep it on the screen the user actually clicked.
+    right = x + 10000
+    try:
+        user32 = ctypes.windll.user32
+        user32.MonitorFromPoint.restype = ctypes.c_void_p
+        user32.MonitorFromPoint.argtypes = [wintypes.POINT, wintypes.DWORD]
+        hmon = user32.MonitorFromPoint(
+            wintypes.POINT(x, y), 2)  # MONITOR_DEFAULTTONEAREST
+        if hmon:
+            mi = _MONITORINFO()
+            mi.cbSize = ctypes.sizeof(_MONITORINFO)
+            if user32.GetMonitorInfoW(ctypes.c_void_p(hmon), ctypes.byref(mi)):
+                # rcWork excludes the taskbar, matching how TrackPopupMenuEx
+                # clamps the menu within the monitor's usable area.
+                right = mi.rcWork.right
+    except Exception:
+        pass
     return _pystray_track_popup_menu_ex(
-        hmenu, flags, x + 10000, y, hwnd, params)
+        hmenu, flags, right, y, hwnd, params)
 
 
 _pystray_win32.TrackPopupMenuEx = _track_popup_menu_ex_left
