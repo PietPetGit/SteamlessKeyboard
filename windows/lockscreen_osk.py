@@ -32,14 +32,9 @@ def _bundle_dir():
     return os.path.dirname(os.path.abspath(__file__))
 
 
-# Mirror tray.py's bootstrap: adusk.resources captures ADUSK_DATA at import
-# time, and PySDL2 needs PYSDL2_DLL_PATH to find the bundled SDL2 DLLs inside a
-# PyInstaller --onefile build. Both must be set BEFORE importing adusk.*.
+# adusk.resources captures ADUSK_DATA at import time, so it must be set BEFORE
+# importing adusk.*. (SDL3 DLLs are located by sdl3w/_loader.py via _MEIPASS.)
 os.environ["ADUSK_DATA"] = os.path.join(_bundle_dir(), "data")
-if _is_frozen():
-    _sdl_dll_dir = os.path.join(_bundle_dir(), "sdl2dll", "dll")
-    if os.path.isdir(_sdl_dll_dir):
-        os.environ["PYSDL2_DLL_PATH"] = _sdl_dll_dir
 
 from adusk import adusk as adusk_app   # noqa: E402
 from adusk import state as adusk_state  # noqa: E402
@@ -185,6 +180,12 @@ if sys.platform == "win32":
     _MOUSEEVENTF_LEFTDOWN = 0x0002
     _MOUSEEVENTF_LEFTUP = 0x0004
 
+    # Used by _dodge_password_box to tell which half of the screen the
+    # password box is in (SM_CYSCREEN = primary display height in pixels).
+    _SM_CYSCREEN = 1
+    _user32.GetSystemMetrics.argtypes = [ctypes.c_int]
+    _user32.GetSystemMetrics.restype = ctypes.c_int
+
     _uia = {"iface": None, "ready": False, "failed": False}
 
     def _uia_init():
@@ -212,12 +213,13 @@ if sys.platform == "win32":
 
     def _click_password_box():
         """Find the lock-screen password Edit via UIA and click its centre so it
-        takes keyboard focus. Returns True if a box was found and clicked."""
+        takes keyboard focus. Returns its CurrentBoundingRectangle if a box was
+        found and clicked, else None."""
         if not _uia_init():
-            return False
+            return None
         hwnd = _find_logonui_hwnd()
         if not hwnd:
-            return False
+            return None
         try:
             iface = _uia["iface"]
             root = iface.ElementFromHandle(hwnd)
@@ -225,10 +227,10 @@ if sys.platform == "win32":
                 _UIA_ControlTypePropertyId, _UIA_EditControlTypeId)
             edit = root.FindFirst(_TreeScope_Subtree, cond)
             if not edit:
-                return False
+                return None
             r = edit.CurrentBoundingRectangle
             if r.right <= r.left or r.bottom <= r.top:
-                return False  # zero-size/offscreen — not the real box yet
+                return None  # zero-size/offscreen — not the real box yet
             cx = (r.left + r.right) // 2
             cy = (r.top + r.bottom) // 2
             try:
@@ -238,10 +240,24 @@ if sys.platform == "win32":
             _user32.SetCursorPos(int(cx), int(cy))
             _user32.mouse_event(_MOUSEEVENTF_LEFTDOWN, 0, 0, 0, None)
             _user32.mouse_event(_MOUSEEVENTF_LEFTUP, 0, 0, 0, None)
-            return True
+            return r
         except Exception as e:
             print(f"UIA click failed: {e!r}")
-            return False
+            return None
+
+    def _dodge_password_box(r):
+        """Move the OSK to whichever half of the screen does NOT contain the
+        password box, so the freshly-opened keyboard never covers it. Called
+        once, the first time the box is located (its position is fixed for the
+        rest of the session)."""
+        screen_h = _user32.GetSystemMetrics(_SM_CYSCREEN)
+        if screen_h <= 0:
+            return
+        box_mid = (r.top + r.bottom) / 2
+        # Position-rotation indices from adusk._apply_window_position:
+        # 0 = down-mid (bottom), 3 = up-mid (top).
+        target = 3 if box_mid >= screen_h / 2 else 0
+        adusk_state.request_window_position(target)
 
     def _credential_focus_watcher():
         # The keyboard and LogonUI take a moment to settle after the Ease-of-
@@ -254,8 +270,10 @@ if sys.platform == "win32":
         while True:
             try:
                 if not clicked:
-                    if _click_password_box():
+                    r = _click_password_box()
+                    if r is not None:
                         clicked = True
+                        _dodge_password_box(r)
                     else:
                         hwnd = _find_logonui_hwnd()
                         if hwnd and _user32.GetForegroundWindow() != hwnd:

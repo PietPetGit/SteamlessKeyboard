@@ -17,7 +17,7 @@ import hid
 
 from steamcontroller import (
     _enumerate_data_interfaces, TRITON_BATTERY_REPORT_ID,
-    TRITON_INPUT_REPORT_ID, TRITON_WIRELESS_STATUS_IDS, _parse_battery,
+    TRITON_INPUT_REPORT_IDS, TRITON_WIRELESS_STATUS_IDS, _parse_battery,
 )
 
 READ_SECONDS = 6.0
@@ -54,8 +54,9 @@ for cand in ifaces:
                 first_batt = _parse_battery(bytes(data))
         summary = ", ".join(f"0x{r:02X}:{n}" for r, n in sorted(ids.items()))
         print(f"    report IDs seen: {summary or '(none)'}")
-        if TRITON_INPUT_REPORT_ID in ids:
-            print(f"    -> game-input interface (0x{TRITON_INPUT_REPORT_ID:02X})")
+        game_ids = [r for r in ids if r in TRITON_INPUT_REPORT_IDS]
+        if game_ids:
+            print(f"    -> game-input interface ({', '.join(f'0x{r:02X}' for r in game_ids)})")
         if TRITON_BATTERY_REPORT_ID in ids:
             print(f"    -> battery 0x43 streams here. parsed: {first_batt}")
         else:

@@ -99,7 +99,7 @@ def _init_uinput():
         # kernel actually treats this device as a pointer).
         mouse_caps = {
             _e.EV_KEY: [_e.BTN_LEFT, _e.BTN_RIGHT, _e.BTN_MIDDLE],
-            _e.EV_REL: [_e.REL_X, _e.REL_Y, _e.REL_WHEEL],
+            _e.EV_REL: [_e.REL_X, _e.REL_Y, _e.REL_WHEEL, _e.REL_HWHEEL],
         }
         _uinput_mouse = UInput(
             mouse_caps, name="SteamlessKeyboard-virtual-mouse", version=1)
@@ -296,6 +296,20 @@ class Keyboard:
             except Exception as exc:
                 print(f"uinput: release {code!r} failed: {exc}")
 
+    def tap_with_modifier(self, modifier_code, key_code):
+        """Press modifier+key as a chord, then release it (Ctrl+V, Win+. ...).
+
+        On the uinput backend the raw key codes combine with the modifier at the
+        kernel level, so a plain press/release sequence yields a true shortcut.
+        (This mirrors the Windows tree's fix, where the pynput backend instead
+        had to resolve the char to a raw VK because pynput injects printable
+        chars as char/Unicode events that ignore a held modifier.)
+        """
+        self.pressEvent([modifier_code])
+        self.pressEvent([key_code])
+        self.releaseEvent([key_code])
+        self.releaseEvent([modifier_code])
+
 
 class Mouse:
     """Relative cursor movement; symmetric with Keyboard."""
@@ -350,3 +364,32 @@ class Mouse:
                     _pynput_mouse.release(btn)
             except Exception as exc:
                 print(f"uinput: mouse button {button} failed: {exc}")
+
+    # press/release: Windows-API-symmetric wrappers over button() so the shared
+    # adusk/controller.py (cp-mirrored from windows/) can drive mouse clicks the
+    # same way on both platforms.
+    def press(self, button="left"):
+        self.button(button, True)
+
+    def release(self, button="left"):
+        self.button(button, False)
+
+    def scroll(self, dx, dy):
+        """Scroll wheel; +dy = up (matches pynput / the Windows wrapper)."""
+        if not dx and not dy:
+            return
+        if _BACKEND == "uinput":
+            try:
+                if dx:
+                    _uinput_mouse.write(_e.EV_REL, _e.REL_HWHEEL, int(dx))
+                if dy:
+                    _uinput_mouse.write(_e.EV_REL, _e.REL_WHEEL, int(dy))
+                _uinput_mouse.syn()
+            except Exception as exc:
+                print(f"uinput: mouse scroll ({dx},{dy}) failed: {exc}")
+            return
+        if _BACKEND == "pynput":
+            try:
+                _pynput_mouse.scroll(int(dx), int(dy))
+            except Exception as exc:
+                print(f"uinput: mouse scroll ({dx},{dy}) failed: {exc}")

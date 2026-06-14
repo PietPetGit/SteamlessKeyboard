@@ -54,6 +54,6 @@ Remove-Item "C:\LockScreenKeyboard" -Recurse -Force -ErrorAction SilentlyContinu
 ## Rebuild the EXE
 
 ```powershell
-cd "...\SteamlessKeyboard-main\SteamlessKeyboard-main"
+cd "...\SteamlessKeyboard-main\SteamlessKeyboard-main\windows"
 python build_lockscreen.py   # -> dist\LockScreenKeyboard.exe
 ```

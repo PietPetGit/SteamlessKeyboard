@@ -17,15 +17,17 @@ Scope is intentionally narrow: only the on-screen keyboard is ported.
 Tray, autostart, Steam-detection, and the ViGEm virtual gamepad stay
 Windows-only for now.
 
-System prerequisites (Debian/Ubuntu names — adjust for your distro):
-    sudo apt install python3-dev libsdl2-2.0-0 libsdl2-image-2.0-0 \\
-                     libsdl2-gfx-1.0-0 libhidapi-hidraw0 libxkbcommon0
+System prerequisites (names vary by distro; Arch/CachyOS shown):
+    sudo pacman -S sdl3 sdl3_ttf hidapi libxkbcommon
+    # Debian/Ubuntu: libsdl3-0 libsdl3-ttf0 libhidapi-hidraw0 libxkbcommon0
 
 Python prerequisites:
-    pip install pyinstaller pysdl2 pillow pynput hidapi pyyaml
+    pip install pyinstaller pillow pynput hidapi pyyaml
+    # No pysdl2 — rendering/input use the vendored sdl3w ctypes binding, which
+    # loads the SYSTEM libSDL3 / libSDL3_ttf at runtime.
 
-The binary loads libSDL2/libhidapi from the system at runtime, so the host
-distro must have the matching shared libraries installed.
+The binary loads libSDL3 / libSDL3_ttf / libhidapi from the system at runtime,
+so the host distro must have the matching shared libraries installed.
 """
 
 import os
@@ -78,6 +80,10 @@ def _run_pyinstaller():
         "--hidden-import", "pynput.keyboard._xorg",
         "--hidden-import", "pynput.mouse._xorg",
         "--hidden-import", "PIL._tkinter_finder",
+        # sdl3w is imported transitively (adusk.screen -> sdl3w); name it
+        # explicitly so PyInstaller bundles the package. It loads the system
+        # libSDL3 / libSDL3_ttf at runtime (no .so bundled into the binary).
+        "--hidden-import", "sdl3w",
         # pystray's Linux backend selection happens at import time and uses
         # dynamic imports PyInstaller can't follow. tray_linux.py forces the
         # AppIndicator backend (xorg has no menu support and doesn't render
