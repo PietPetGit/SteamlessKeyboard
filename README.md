@@ -26,8 +26,8 @@ Run it and follow the prompts. You only need to do this once. The keyboard will 
 
 ### 2. Download SteamlessKeyboard
 
-- Windows: download `SteamlessKeyboard-windows.zip` from the [Releases page](https://github.com/PietPetGit/SteamlessKeyboard/releases), extract it, and run `SteamlessKeyboard-windows.exe`.
-- Linux: download `SteamlessKeyboard-linux.tar.gz`, extract it, and run `SteamlessKeyboard`.
+- Grab `SteamlessKeyboard.exe` from the [Releases page](https://github.com/PietPetGit/SteamlessKeyboard/releases)
+- Drop it anywhere on your machine and run it
 
 ### 3. Configure settings (optional)
 Right-click the <img src="windows/assets/SteamlessController_seethrough.png" width="20" style="vertical-align:middle"> tray icon:
@@ -42,7 +42,6 @@ Right-click the <img src="windows/assets/SteamlessController_seethrough.png" wid
 | **Gamepad Mode → Auto enable** | Automatically activate gamepad mode when a game is in the foreground |
 | **Gamepad Mode → Always enable** | Keep gamepad mode on at all times (hold Home/Steam + stick to control the mouse) |
 | **Gamepad Mode → Off** | Disable the virtual gamepad entirely |
-
 ||
 | **Steam Controller/Switch Pro Controller** *(shown while one is connected)* | |
 | → Keyboard Sticks/Mouse controls | Turn off to make the stick and mouse controls ignore the keyboard |
@@ -57,10 +56,6 @@ Right-click the <img src="windows/assets/SteamlessController_seethrough.png" wid
 | **Advanced Settings** *(hidden until enabled via Startup → Advanced Settings)* | |
 | → Block SteamInput Steam Controller grab | Stops SteamInput / Big Picture from opening when using media controls |
 | → Block SteamInput Xbox Controller grab | Hides the virtual Xbox controller from SteamInput so Steam doesn't take it over |
-=======
-| **Vibration** | Toggle rumble / haptic feedback |
-| **Debug** *(hidden — toggle Vibration 4× in a row to reveal/hide)* | **Block SteamInput Steam Controller grab** — made for stopping SteamInput / Big Picture from opening when using media controls |
-
 
 ## Optional: Lock-screen keyboard (windows only)
 
@@ -69,22 +64,7 @@ Windows **lock screen**, so you can type your password and sign in without a
 physical keyboard. It is **not** part of core SteamlessKeyboard and carries a
 real security trade-off — read
 [windows/lockscreen-keyboard/README.md](windows/lockscreen-keyboard/README.md)
-before installing. The installer files are included in the Windows release zip.
-
-## Optional: Nintendo Switch Pro Controller in gamepad mode (windows only)
-
-**Only for the Switch Pro, and optional.** In gamepad mode the physical Switch
-Pro stays visible to games and spams phantom input (buttons 1–8) on top of our
-virtual Xbox pad. Hide it with the free **HidHide** driver — a one-time setup:
-
-1. Install **HidHide** — `winget install Nefarius.HidHide` (or the [installer](https://github.com/nefarius/HidHide/releases)) — then **reboot**.
-2. Open **HidHide Configuration Client** and:
-   - **Applications** tab → **+** → add your `SteamlessKeyboard-windows.exe`.
-   - **Devices** tab → tick **Nintendo Co., Ltd. Pro Controller**.
-   - Enable **Enable device hiding** at the bottom.
-
-Games now see only the virtual Xbox pad, while SteamlessKeyboard still reads the
-controller. To use the Switch Pro normally again, untick **Enable device hiding**.
+before installing.
 
 ## Optional: Nintendo Switch Pro Controller in gamepad mode (windows only)
 
@@ -124,17 +104,5 @@ controller. To use the Switch Pro normally again, untick **Enable device hiding*
 - Forked from [archshift/adusk](https://github.com/archshift/adusk)
 - Gamepad translation inspired by [ddeverill/SteamlessController](https://github.com/ddeverill/SteamlessController)
 - Virtual gamepad driver by [Nefarius/ViGEmBus](https://github.com/nefarius/ViGEmBus)
-- Windows virtual gamepad wrapper vendored from [yannbouteiller/vgamepad](https://github.com/yannbouteiller/vgamepad)
 - Rumble implementation adapted from [CrazyCritic89/SteamHapticsSinger](https://github.com/CrazyCritic89/SteamHapticsSinger)
 - Battery-status parsing referenced from [samueltoken/Bloss_battery_indicator](https://github.com/samueltoken/Bloss_battery_indicator)
-
-
-## Building from source
-
-Install Python 3.12+ dependencies, then build from the platform folder:
-
-```bash
-python -m pip install -r requirements.txt
-cd windows && python build.py
-cd linux && python build.py
-```
