@@ -1,31 +1,14 @@
 # ---- Secrets — never commit, even if accidentally placed in the tree ----
 Github_token.txt
 Github_Token.txt
-*token*.txt
-*.env
-.env
-.env.*
 *.pem
 *.key
-*.p12
-*.pfx
-*.crt
-*.cer
 
-# ---- Python caches / test output ----
+# ---- Python ----
 __pycache__/
 *.py[cod]
-*.pyo
-*.pyd
 *.egg-info/
 .eggs/
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-.coverage
-htmlcov/
-
-# ---- Python environments ----
 .venv/
 venv/
 env/
@@ -47,28 +30,13 @@ triton_probe_*.txt
 release.txt
 Push_Github.md
 OLD VERSION/
-done.txt
-fix.txt
-resume*.txt
-.local-archive/
 
 # ---- Editor / OS / agent scratch ----
-AGENTS.md
-CLAUDE.md
 *.tmp
-*.temp
 *.log
 .DS_Store
-Thumbs.db
-Desktop.ini
 node_modules/
 .idea/
 .vscode/
-.codex/
-.codex-local/
 .claude/
 claude-resume/
-
-.claude-resume/
-=======
-
