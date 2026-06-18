@@ -2,24 +2,25 @@
 
 Run:
     python build.py
+    python build.py --skip-lockscreen
 
 Produces `dist/SteamlessKeyboard-windows.exe`. Uses the prebuilt
 `data/images/app_icon.ico` (multi-resolution) directly as the EXE icon
 and bundles the data/ folder as PyInstaller datas. The output is a
 single-file, no-console exe suitable for dropping anywhere.
 
-Also rebuilds the lock-screen keyboard (build_lockscreen.py) and copies the
-result over lockscreen-keyboard/LockScreenKeyboard.exe, so the packaged
-lock-screen exe always matches the current adusk/ source.
+By default, also rebuilds the lock-screen keyboard (build_lockscreen.py) and
+copies the result over lockscreen-keyboard/LockScreenKeyboard.exe, so the
+packaged lock-screen exe always matches the current adusk/ source. Release CI
+passes --skip-lockscreen so Windows release assets contain only the tray app.
 """
 
+import argparse
 import glob
 import os
 import shutil
 import subprocess
 import sys
-
-import build_lockscreen
 
 
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -27,6 +28,18 @@ ENTRY = "tray.py"
 OUTPUT_NAME = "SteamlessKeyboard-windows"
 APP_ICON_ICO = os.path.join(PROJECT_DIR, "data", "images", "app_icon.ico")
 DATA_DIR = os.path.join(PROJECT_DIR, "data")
+
+
+def _parse_args(argv=None):
+    parser = argparse.ArgumentParser(
+        description="Build the portable SteamlessKeyboard Windows executable."
+    )
+    parser.add_argument(
+        "--skip-lockscreen",
+        action="store_true",
+        help="Do not build or copy the optional lock-screen keyboard helper.",
+    )
+    return parser.parse_args(argv)
 
 
 def _check_icon():
@@ -94,6 +107,8 @@ def _cleanup():
 
 
 def _build_lockscreen():
+    import build_lockscreen
+
     build_lockscreen.main()
     src = os.path.join(PROJECT_DIR, "dist", "LockScreenKeyboard.exe")
     dst = os.path.join(PROJECT_DIR, "lockscreen-keyboard", "LockScreenKeyboard.exe")
@@ -101,14 +116,19 @@ def _build_lockscreen():
     print(f"updated: {dst}")
 
 
-def main():
+def main(argv=None):
+    args = _parse_args(argv)
+
     _check_icon()
     _run_pyinstaller()
     _cleanup()
     out = os.path.join(PROJECT_DIR, "dist", f"{OUTPUT_NAME}.exe")
     print(f"\nbuilt: {out}")
 
-    _build_lockscreen()
+    if args.skip_lockscreen:
+        print("skipped lock-screen keyboard build")
+    else:
+        _build_lockscreen()
 
 
 if __name__ == "__main__":

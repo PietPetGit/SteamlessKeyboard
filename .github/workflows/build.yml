@@ -29,14 +29,13 @@ jobs:
 
       - name: Build Windows binaries
         working-directory: windows
-        run: python build.py
+        run: python build.py --skip-lockscreen
 
       - name: Package Windows release
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path release\SteamlessKeyboard-windows | Out-Null
           Copy-Item -LiteralPath windows\dist\SteamlessKeyboard-windows.exe -Destination release\SteamlessKeyboard-windows\
-          Copy-Item -LiteralPath windows\lockscreen-keyboard -Destination release\SteamlessKeyboard-windows\lockscreen-keyboard -Recurse
           Copy-Item -LiteralPath README.md,LICENSE -Destination release\SteamlessKeyboard-windows\
           Compress-Archive -Path release\SteamlessKeyboard-windows -DestinationPath SteamlessKeyboard-windows.zip -Force
 
